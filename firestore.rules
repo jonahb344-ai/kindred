@@ -1,0 +1,123 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // ─── Public user profiles ────────────────────────────────────────────────
+    // Public fields only (name, username, bio, photoUrl, score, etc.).
+    // Email, phone and FCM tokens live in users/{uid}/private, owned by the user.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && uid == request.auth.uid;
+      allow update: if signedIn() && (
+        uid == request.auth.uid
+        // The points-awarding flow lets a requester update a volunteer's
+        // gamification fields only (no PII), with a sanity cap on the score.
+        || (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['kindnessScore', 'level', 'actsCompleted', 'streak', 'lastActDate'])
+          && request.resource.data.kindnessScore <= 100000
+        )
+      );
+      allow delete: if signedIn() && uid == request.auth.uid;
+
+      // ─── Private data (email, phone, FCM token) ────────────────────────────
+      match /private/{doc} {
+        allow read, write: if signedIn() && uid == request.auth.uid;
+      }
+
+      // ─── Action history (shown on public profiles) ─────────────────────────
+      match /history/{entry} {
+        allow read: if signedIn();
+        allow create: if signedIn() && uid == request.auth.uid;
+        allow update, delete: if signedIn() && uid == request.auth.uid;
+      }
+    }
+
+    // ─── Requests ────────────────────────────────────────────────────────────
+    match /requests/{id} {
+      function isRequester() { return resource.data.requesterId == request.auth.uid; }
+      function isVolunteer() { return resource.data.volunteerId == request.auth.uid; }
+      function isParticipant() { return signedIn() && (isRequester() || isVolunteer()); }
+
+      allow create: if signedIn() && request.resource.data.requesterId == request.auth.uid;
+      allow read: if signedIn() && (
+        resource.data.status == 'open' || isRequester() || isVolunteer()
+      );
+      allow update: if signedIn() && (
+        // Requester completes the request
+        (isRequester()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status == 'completed')
+        ||
+        // A volunteer claims an open request
+        (resource.data.status == 'open'
+          && request.resource.data.status == 'claimed'
+          && request.resource.data.volunteerId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'volunteerId', 'volunteerName', 'claimedAt']))
+      );
+      allow delete: if isParticipant();
+    }
+
+    // ─── Chats and messages (participants only) ──────────────────────────────
+    match /chats/{chatId} {
+      function chatRequest() {
+        return get(/databases/$(database)/documents/requests/$(chatId));
+      }
+      function chatParticipant() {
+        return signedIn()
+          && chatRequest().exists
+          && (chatRequest().data.requesterId == request.auth.uid
+              || chatRequest().data.volunteerId == request.auth.uid);
+      }
+
+      allow read, write: if chatParticipant();
+
+      match /messages/{messageId} {
+        allow create: if chatParticipant() && request.resource.data.senderId == request.auth.uid;
+        allow read, update, delete: if chatParticipant();
+      }
+    }
+
+    // ─── Notifications (owner only; chat cleanup by participants) ────────────
+    match /notifications/{id} {
+      function notifChatParticipant() {
+        return resource.data.chatId != null
+          && get(/databases/$(database)/documents/requests/$(resource.data.chatId)).exists
+          && (get(/databases/$(database)/documents/requests/$(resource.data.chatId)).data.requesterId == request.auth.uid
+              || get(/databases/$(database)/documents/requests/$(resource.data.chatId)).data.volunteerId == request.auth.uid);
+      }
+
+      allow create: if signedIn();
+      allow read, update: if signedIn()
+        && (resource.data.toUid == request.auth.uid || notifChatParticipant());
+      allow delete: if signedIn()
+        && (resource.data.toUid == request.auth.uid || notifChatParticipant());
+    }
+
+    // ─── Reports (write only; read restricted to server/admin) ───────────────
+    match /reports/{id} {
+      allow create: if signedIn();
+      allow read, update, delete: if false;
+    }
+
+    // ─── Community feed ──────────────────────────────────────────────────────
+    match /feed/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // ─── Thank-you notes ─────────────────────────────────────────────────────
+    match /thank_you_notes/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.fromUid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.fromUid == request.auth.uid;
+    }
+  }
+}

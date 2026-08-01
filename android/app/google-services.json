@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "193898349536",
+    "project_id": "kindred-app-2fe7a",
+    "storage_bucket": "kindred-app-2fe7a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:193898349536:android:083917d82ca12bcc34e185",
+        "android_client_info": {
+          "package_name": "com.example.kindred_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "193898349536-f8gk6f2jri8pd8qip99bqp0f9flir4gs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.kindred_app",
+            "certificate_hash": "d649c441f5676a71fc7ef76c7f08fb1b9c97f454"
+          }
+        },
+        {
+          "client_id": "193898349536-tdt9sttf9mnv9dk8uenk113icb67aeq0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCFu2NQ7YQd0qhN6k9qj3EytySo_revC10"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "193898349536-tdt9sttf9mnv9dk8uenk113icb67aeq0.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
