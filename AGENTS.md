@@ -107,8 +107,10 @@ public); secret values live only in the files/locations referenced below.
   chat notifications. Client fixes: `_send()` no longer clears input before the write and
   shows "Message not sent" snackbar on failure; ChatScreen gained a block guard (hides chat
   if either user blocked the other) + "conversation no longer available" error state.
-  Analyze clean (15 info lints), tests pass, release APK rebuilt (55.6 MB) and `adb install -r`
-  Success; app launches (MainActivity foreground). Committed+deployed rules.
+  Analyze clean (15 info lints), tests pass, release APK rebuilt (55.6 MB, SHA-256
+  `10DE9A6BE6680E1E3C09A89C4772F48F05896CA27AC861B130C316EBFA3CB9C1`) and `adb install -r`
+  Success; app launches (MainActivity foreground). Committed 04a4d49 + pushed; rules deployed.
+  NOT yet uploaded to the GitHub release (waiting on user's hand-test of two-account messaging).
 - 2026-08-01 Security overhaul: removed leaked Anthropic API key from client; moved PII
   (email/phone/fcmToken) to `users/{uid}/private`; wrote+deployed `firestore.rules`;
   set up release signing (keystore, key.properties, build.gradle.kts signingConfig).
