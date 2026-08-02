@@ -1,8 +1,12 @@
 // Kindred server-side helper (Cloudflare Worker, free tier)
 //
-// Routes (all require a Firebase Auth ID token in `Authorization: Bearer <token>`):
-//   POST /verify  -> AI kindness-act verification via Anthropic
-//   POST /push    -> FCM push notification to a user (reads their token from Firestore)
+// Routes:
+//   POST /verify   -> AI kindness-act verification via Anthropic
+//                     (requires a Firebase Auth ID token)
+//   POST /push     -> FCM push notification to a user (reads their token from Firestore)
+//                     (requires a Firebase Auth ID token)
+//   GET  /verified -> Public, friendly "email verified" page. Used as the continueUrl
+//                     in the Firebase verification email link.
 //
 // Setup:
 //   1. Free Cloudflare account (no credit card).
@@ -12,11 +16,16 @@
 //                              Console -> Project settings -> Service accounts -> Generate new private key)
 //        ANTHROPIC_API_KEY    (sk-ant-api03-...)
 //   4. Use the *.workers.dev URL in the app (kServerBaseUrl).
+//   5. Add your *.workers.dev domain to Firebase Console -> Authentication -> Settings ->
+//      Authorized domains (needed so the verification email link can redirect here).
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (request.method === 'GET' && url.pathname === '/verified') {
+      return verifiedPage();
+    }
     if (request.method === 'POST' && url.pathname === '/verify') {
       return handleVerify(request, env);
     }
@@ -35,6 +44,48 @@ function json(obj, status) {
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
+// ─── /verified (public friendly page) ────────────────────────────────────────
+
+const VERIFIED_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email verified — Kindred</title>
+<style>
+  body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f0fdf9;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+  .card{background:#fff;border-radius:24px;padding:48px 36px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(13,148,136,0.2);text-align:center;}
+  .badge{width:80px;height:80px;border-radius:50%;background:#d1fae5;display:flex;align-items:center;justify-content:center;margin:0 auto 24px;font-size:38px;}
+  h1{color:#0f172a;font-size:26px;margin:0 0 12px;}
+  p{color:#475569;font-size:15px;line-height:1.7;margin:0 0 24px;}
+  .steps{text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;color:#334155;font-size:14px;line-height:2;}
+  .step{display:flex;align-items:center;gap:8px;}
+  .step b{color:#0d9488;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">&#10004;&#65039;</div>
+    <h1>You&#39;re verified!</h1>
+    <p>Your email is confirmed. You&#39;re officially part of the Kindred neighborhood.</p>
+    <div class="steps">
+      <div class="step"><b>1</b> Open the Kindred app</div>
+      <div class="step"><b>2</b> Tap <b>&quot;I&#39;ve verified — Continue&quot;</b></div>
+    </div>
+    <p style="font-size:13px;color:#94a3b8;margin-top:24px;">Then start helping your neighbors! &#128591;</p>
+  </div>
+</body>
+</html>`;
+
+function verifiedPage() {
+  return new Response(VERIFIED_PAGE, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
     },
   });
 }
@@ -101,13 +152,13 @@ async function verifyFirebaseIdToken(idToken, projectId) {
     const cryptoKey = await crypto.subtle.importKey(
       'jwk',
       { kty: 'RSA', n: jwk.n, e: jwk.e, alg: 'RS256', use: 'sig' },
-      { name: 'RS256', hash: 'SHA-256' },
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
       false,
       ['verify']
     );
 
     const data = new TextEncoder().encode(parts[0] + '.' + parts[1]);
-    const valid = await crypto.subtle.verify('RS256', cryptoKey, base64UrlDecode(parts[2]), data);
+    const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', cryptoKey, base64UrlDecode(parts[2]), data);
     if (!valid) return null;
 
     const payload = decodeJson(parts[1]);
@@ -163,11 +214,11 @@ async function getOAuthToken(sa) {
   const privateKey = await crypto.subtle.importKey(
     'pkcs8',
     pemToBinary(sa.private_key),
-    { name: 'RS256', hash: 'SHA-256' },
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
     false,
     ['sign']
   );
-  const sig = await crypto.subtle.sign('RS256', privateKey, new TextEncoder().encode(unsigned));
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privateKey, new TextEncoder().encode(unsigned));
   const jwt = unsigned + '.' + bytesToBase64Url(new Uint8Array(sig));
 
   const resp = await fetch(tokenUri, {

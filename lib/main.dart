@@ -699,7 +699,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (user != null) {
           await user.updateProfile(displayName: name);
           await _ensureUserDoc(user);
-          await user.sendEmailVerification();
+          await user.sendEmailVerification(_verificationSettings());
         }
       } else {
         final userCredential = await FirebaseAuth.instance
@@ -718,6 +718,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
+
+  ActionCodeSettings _verificationSettings() => ActionCodeSettings(
+    url: 'https://kindred.jonahb344.workers.dev/verified',
+    handleCodeInApp: false,
+  );
 
   bool _isValidEmail(String email) {
     return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
@@ -961,7 +966,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   Future<void> _resend() async {
     setState(() => _sending = true);
     try {
-      await _user?.sendEmailVerification();
+      await _user?.sendEmailVerification(ActionCodeSettings(
+        url: 'https://kindred.jonahb344.workers.dev/verified',
+        handleCodeInApp: false,
+      ));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Verification email sent — check your inbox.')));
       }

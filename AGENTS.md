@@ -132,6 +132,19 @@ public); secret values live only in the files/locations referenced below.
   (D6:49:C4:41:F5:67:6A:71:FC:7E:F7:6C:7F:08:FB:1B:9C:97:F4:54) was added later the same day, so
   debug `flutter run` builds work too. Note: google-services.json MUST stay committed (build
   requirement); the key is client-side, restriction is the correct mitigation.
+- 2026-08-01 Fixed a CRITICAL Worker auth bug: `crypto.subtle.importKey`/`verify`/`sign` used the
+  invalid WebCrypto algorithm name `'RS256'` (throws NotSupportedError; correct name is
+  `'RSASSA-PKCS1-v1_5'`). This made Firebase ID token verification ALWAYS fail -> `/verify` returned
+  401 for every real user, and `/push` (OAuth JWT signing) would fail too. Verified locally that
+  Node/WebCrypto rejects `'RS256'`. Worker MUST be re-deployed (paste worker/worker.js into Cloudflare).
+- 2026-08-01 Friendly verification emails: worker.js now serves a public `GET /verified` success
+  page (on-brand HTML). App sends verification emails with
+  `ActionCodeSettings(url: 'https://kindred.jonahb344.workers.dev/verified', handleCodeInApp: false)`
+  so tapping the email link lands on that page. Requires: (a) redeploy worker, (b) add
+  kindred.jonahb344.workers.dev to Firebase Console Authentication -> Settings -> Authorized domains,
+  (c) customize the verification email template. APK rebuilt (SHA-256
+  BC154004392F027BFB1A207531564E63DB3802657547458EA94BBDEFD1042A78), installed on phone (adb -r),
+  uploaded to release (asset 498514290), verified byte-identical.
 
 ## Known gotchas / decisions
 - User decision: Spark plan only (no card/billing), Cloudflare Worker free tier, public repo,
@@ -140,6 +153,8 @@ public); secret values live only in the files/locations referenced below.
   before any app-store submission (Play auto-rejects `com.example`).
 - Old Anthropic key (leaked earlier) should be revoked in the Anthropic console.
 - Worker push uses FCM HTTP v1 (legacy API deprecated). Requires the service account secret.
+- WebCrypto algorithm names in worker.js MUST be `RSASSA-PKCS1-v1_5` — `'RS256'` throws
+  NotSupportedError and silently breaks ALL auth (do not reintroduce).
 - The `assets/*.jpg` images are used by the onboarding screens — do NOT delete.
 - When worker.js changes, the user must paste it into the Cloudflare dashboard and redeploy
   (there is no CI/CD).
