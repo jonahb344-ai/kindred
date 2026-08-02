@@ -116,6 +116,12 @@ public); secret values live only in the files/locations referenced below.
   new VerifyEmailScreen (resend, "I've verified" reload+continue, sign out). Requires
   Email/Password provider enabled in Firebase Console. Analyze clean, tests pass, APK rebuilt
   (SHA-256 `1D97249743C83BA3AE61C11FA3368F4D334B3105DC45E2F91E7EB8DF0BBC4ABE`).
+- 2026-08-01 "App not installed" FIXED on Jonah's Android 11 phone via adb: root cause was a
+  stale debug-signed copy of the app installed in the phone's GUEST user profile (user 10).
+  Android blocks a differently-signed install even across users, which manual uninstall
+  (user 0 only) never removed. Fixed with `adb uninstall --user 10 com.example.kindred_app`,
+  then `adb install apks\v0.1.0\kindred.apk` → Success. App verified running in foreground
+  (mCurrentFocus = com.example.kindred_app/.MainActivity). Committed as fc7d7d4 + pushed.
 
 ## Known gotchas / decisions
 - User decision: Spark plan only (no card/billing), Cloudflare Worker free tier, public repo,
