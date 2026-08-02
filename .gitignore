@@ -52,3 +52,6 @@ android/key.properties
 
 # Local APK archives (kept out of the public repo)
 /apks/
+
+# Cloudflare Wrangler local auth/config
+/.wrangler/

@@ -59,13 +59,18 @@ public); secret values live only in the files/locations referenced below.
 - Firebase project `kindred-app-2fe7a` (display "kindred-app"), owner jonahb344@gmail.com,
   **Spark free plan (no Blaze)** — no Cloud Functions (abandoned; Blaze needs a card), no App
   Distribution, no Storage. All logic on a free Cloudflare Worker.
-- Worker URL: `https://kindred.jonahb344.workers.dev` (source: `worker/worker.js`, deployed by
-  pasting into Cloudflare dashboard — remember to paste updates after code changes).
+- Worker URL: `https://kindred.jonahb344.workers.dev` (source: `worker/worker.js`).
+  DEPLOY NOW VIA WRANGLER CLI (dashboard editor was read-only on Jonah's account):
+  `npx.cmd wrangler deploy worker/worker.js --name kindred --compatibility-date 2026-08-02`
+  (account id `c9e624deea5ecde4a88898133608c639`, auth via `npx.cmd wrangler login`). Secrets
+  live in Cloudflare dashboard (never in code) and survive code-only deploys.
 - Worker secrets (in Cloudflare dashboard, never in code): `ANTHROPIC_API_KEY`,
   `SERVICE_ACCOUNT` (Firebase service-account JSON). Routes require a valid Firebase ID token
   in `Authorization: Bearer ...` (verified 401 without). `/verify` = AI kindness check
   (Anthropic claude-sonnet-4-6); `/push` = FCM HTTP v1 send using service-account OAuth
-  (RS256 JWT signed with WebCrypto) + Firestore REST read of the target's fcmToken.
+  (RS256 JWT signed with WebCrypto) + Firestore REST read of the target's fcmToken;
+  `/notifyNearby` = after a request is posted, push + in-app notify users within
+  NEARBY_RADIUS_KM (8) using each user's saved `users/{uid}/private/data.location`.
 - App calls the Worker via `kServerBaseUrl` const in `lib/main.dart` and sends the user's ID
   token via `_authHeaders()`. Tokens are verified RS256 against Google's securetoken JWKS.
 - Firestore rules deployed from `firestore.rules` (users/requests/chats/notifications locked
@@ -93,6 +98,26 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-01 Deployed worker via WRANGLER CLI (dashboard editor is read-only on Jonah's
+  account). `npx.cmd wrangler login` (account c9e624deea5ecde4a88898133608c639) then
+  `npx.cmd wrangler deploy worker/worker.js --name kindred --compatibility-date 2026-08-02`.
+  Live-verified: /notifyNearby and /push both return 401 without a token (route live + secrets
+  intact), /verified 200. New version id 7fd2763e-86ea-485a-aec1-7d573fc4c5ab.
+- 2026-08-01 Notification UX + nearby requests: (a) Messages tab now clears its unread
+  chat bubble just by opening the tab — ChatsListScreen became a StatefulWidget that marks
+  all chat notifications (`chatId != null`) read when visible (and keeps clearing new ones
+  while the tab is shown); (b) Help tab clears its non-chat bubble the same way
+  (`_clearHelpNotificationBadge` in _HelpOthersScreenState); (c) nearby-request
+  notifications: requests now store `lat`/`lng` at post time, users' locations are saved to
+  `users/{uid}/private/data.location` on sign-in (`_ensureUserDoc`) and map load, and after
+  posting the app calls new Worker route `POST /notifyNearby` which lists all users, keeps
+  those within NEARBY_RADIUS_KM (8), skips the requester / mutual blocks / `notifRequests`
+  off / no-location users, then FCM-pushes "New request near you!" + writes an in-app
+  notification (chatId null → shows on Help bubble). NOTE: worker.js MUST be redeployed
+  (paste into Cloudflare) for /notifyNearby to work; app tolerates a 404/error silently.
+  Analyze clean (15 info lints), tests pass, release APK rebuilt (SHA-256
+  `A253C2E7E352E0C8E6FC4A2406394688F1D078923BEEAA372D4DEEB967D11809`), installed on phone
+  (adb -r Success) + saved to apks\v0.1.0\kindred.apk. Committed pending user decision.
 - 2026-08-01 CHAT/MESSAGING FIXED (major): root cause was Firestore rules using `.exists`
   on `get()` results in `chatParticipant()`/`notifChatParticipant()` — `.exists` ALWAYS
   evaluates to false on this project, so every chat message read/write was 403 DENIED
@@ -180,8 +205,9 @@ public); secret values live only in the files/locations referenced below.
   `.data.field` comparisons instead; a missing doc makes `.data` null and the comparison
   fails closed (deny).
 - The `assets/*.jpg` images are used by the onboarding screens — do NOT delete.
-- When worker.js changes, the user must paste it into the Cloudflare dashboard and redeploy
-  (there is no CI/CD).
+- When worker.js changes, redeploy with `npx.cmd wrangler deploy worker/worker.js
+  --name kindred --compatibility-date 2026-08-02` (dashboard editor is read-only on Jonah's
+  account; secrets are preserved on code-only deploys).
 
 ## TODO / next steps
 - Confirm fresh-install Google Sign-In works on the release build (fingerprint was added).

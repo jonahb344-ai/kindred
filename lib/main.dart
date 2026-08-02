@@ -655,6 +655,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await FirebaseFirestore.instance
         .collection('users').doc(user.uid).collection('private').doc('data')
         .set({'email': user.email, 'phone': '', 'fcmToken': token}, SetOptions(merge: true));
+    _updateMyLocation();
   }
 
   Future<void> _signInWithGoogle() async {
@@ -1847,10 +1848,40 @@ class HelpOthersScreen extends StatefulWidget {
 
 class _HelpOthersScreenState extends State<HelpOthersScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  StreamSubscription<QuerySnapshot>? _helpNotifSub;
   @override
-  void initState() { super.initState(); _tabController = TabController(length: 2, vsync: this); }
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _clearHelpNotificationBadge();
+  }
   @override
-  void dispose() { _tabController.dispose(); super.dispose(); }
+  void dispose() {
+    _helpNotifSub?.cancel();
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _clearHelpNotificationBadge() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final existing = await FirebaseFirestore.instance.collection('notifications')
+          .where('toUid', isEqualTo: uid).where('read', isEqualTo: false).get();
+      for (final d in existing.docs) {
+        if ((d.data() as Map)['chatId'] == null) { await d.reference.update({'read': true}); }
+      }
+    } catch (_) {}
+    _helpNotifSub = FirebaseFirestore.instance.collection('notifications')
+        .where('toUid', isEqualTo: uid).where('read', isEqualTo: false).snapshots()
+        .listen((snap) async {
+      for (final d in snap.docs) {
+        if ((d.data() as Map)['chatId'] == null) {
+          try { await d.reference.update({'read': true}); } catch (_) {}
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2239,6 +2270,49 @@ Future<void> _sendPushNotification(String targetUid, String title, String body) 
   } catch (_) {}
 }
 
+Future<Position?> _getCurrentPosition() async {
+  try {
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied) return null;
+    }
+    if (perm == LocationPermission.deniedForever) return null;
+    return await Geolocator.getCurrentPosition();
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _saveMyLocation(Position pos) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return;
+  try {
+    await FirebaseFirestore.instance
+        .collection('users').doc(uid).collection('private').doc('data')
+        .set({'location': {'lat': pos.latitude, 'lng': pos.longitude}}, SetOptions(merge: true));
+  } catch (_) {}
+}
+
+Future<void> _updateMyLocation() async {
+  final pos = await _getCurrentPosition();
+  if (pos != null) await _saveMyLocation(pos);
+}
+
+Future<void> _notifyNearby(String requestId) async {
+  try {
+    await http.post(
+      Uri.parse('$kServerBaseUrl/notifyNearby'),
+      headers: {
+        'Content-Type': 'application/json',
+        ...await _authHeaders(),
+      },
+      body: jsonEncode({'requestId': requestId}),
+    );
+  } catch (_) {}
+}
+
 void _showPostRequestSheet(BuildContext context) {
   final descController = TextEditingController();
   String selectedCategory = 'Grocery Run';
@@ -2299,11 +2373,16 @@ void _showPostRequestSheet(BuildContext context) {
             final user = FirebaseAuth.instance.currentUser;
             if (user == null) return;
             if (descController.text.trim().isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please add a description.'))); return; }
-            await FirebaseFirestore.instance.collection('requests').add({
+            final pos = await _getCurrentPosition();
+            if (pos != null) await _saveMyLocation(pos);
+            final ref = await FirebaseFirestore.instance.collection('requests').add({
               'requesterId': user.uid, 'requesterName': user.displayName, 'category': selectedCategory,
               'description': descController.text.trim(), 'urgency': selectedUrgency, 'status': 'open',
               'volunteerId': null, 'volunteerName': null, 'createdAt': FieldValue.serverTimestamp(),
+              if (pos != null) 'lat': pos.latitude,
+              if (pos != null) 'lng': pos.longitude,
             });
+            await _notifyNearby(ref.id);
             if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Request posted!'), backgroundColor: kAccentDark)); }
           },
         ),
@@ -2507,9 +2586,48 @@ class _ChatScreenState extends State<ChatScreen> {
 
 // ─── CHATS INBOX ────────────────────────────────────────────────────────────
 
-class ChatsListScreen extends StatelessWidget {
+class ChatsListScreen extends StatefulWidget {
   const ChatsListScreen({super.key, this.asTab = false});
   final bool asTab;
+  @override
+  State<ChatsListScreen> createState() => _ChatsListScreenState();
+}
+
+class _ChatsListScreenState extends State<ChatsListScreen> {
+  StreamSubscription<QuerySnapshot>? _chatNotifSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _clearChatNotificationBadge();
+  }
+
+  @override
+  void dispose() {
+    _chatNotifSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _clearChatNotificationBadge() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final existing = await FirebaseFirestore.instance.collection('notifications')
+          .where('toUid', isEqualTo: uid).where('read', isEqualTo: false).get();
+      for (final d in existing.docs) {
+        if ((d.data() as Map)['chatId'] != null) { await d.reference.update({'read': true}); }
+      }
+    } catch (_) {}
+    _chatNotifSub = FirebaseFirestore.instance.collection('notifications')
+        .where('toUid', isEqualTo: uid).where('read', isEqualTo: false).snapshots()
+        .listen((snap) async {
+      for (final d in snap.docs) {
+        if ((d.data() as Map)['chatId'] != null) {
+          try { await d.reference.update({'read': true}); } catch (_) {}
+        }
+      }
+    });
+  }
 
   Stream<QuerySnapshot> _chatStreams(String uid) {
     final a = FirebaseFirestore.instance.collection('requests').where('requesterId', isEqualTo: uid).snapshots();
@@ -2535,7 +2653,7 @@ class ChatsListScreen extends StatelessWidget {
       backgroundColor: kBackground,
       appBar: AppBar(
         backgroundColor: kBackground, elevation: 0, scrolledUnderElevation: 0,
-        leading: asTab ? null : IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), onPressed: () => Navigator.pop(context)),
+        leading: widget.asTab ? null : IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), onPressed: () => Navigator.pop(context)),
         title: Text('Messages', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800, fontSize: 22)),
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -2670,14 +2788,10 @@ class _NearbyMapState extends State<_NearbyMap> {
   void initState() { super.initState(); _loadLocation(); }
 
   Future<void> _loadLocation() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) return;
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) { perm = await Geolocator.requestPermission(); if (perm == LocationPermission.denied) return; }
-      if (perm == LocationPermission.deniedForever) return;
-      final pos = await Geolocator.getCurrentPosition();
-      if (mounted) { setState(() { _center = LatLng(pos.latitude, pos.longitude); _locationLoaded = true; }); _mapController.move(_center, 13); }
-    } catch (_) {}
+    final pos = await _getCurrentPosition();
+    if (pos == null) return;
+    if (mounted) { setState(() { _center = LatLng(pos.latitude, pos.longitude); _locationLoaded = true; }); _mapController.move(_center, 13); }
+    _saveMyLocation(pos);
   }
 
   Widget _pin(IconData icon, Color color) {

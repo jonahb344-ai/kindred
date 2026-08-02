@@ -1,12 +1,15 @@
 // Kindred server-side helper (Cloudflare Worker, free tier)
 //
 // Routes:
-//   POST /verify   -> AI kindness-act verification via Anthropic
-//                     (requires a Firebase Auth ID token)
-//   POST /push     -> FCM push notification to a user (reads their token from Firestore)
-//                     (requires a Firebase Auth ID token)
-//   GET  /verified -> Public, friendly "email verified" page. Used as the continueUrl
-//                     in the Firebase verification email link.
+//   POST /verify       -> AI kindness-act verification via Anthropic
+//                         (requires a Firebase Auth ID token)
+//   POST /push         -> FCM push notification to a user (reads their token from Firestore)
+//                         (requires a Firebase Auth ID token)
+//   POST /notifyNearby -> When a request is posted, push + in-app notify users whose
+//                         saved location is within NEARBY_RADIUS_KM of the request
+//                         (requires a Firebase Auth ID token)
+//   GET  /verified     -> Public, friendly "email verified" page. Used as the continueUrl
+//                         in the Firebase verification email link.
 //
 // Setup:
 //   1. Free Cloudflare account (no credit card).
@@ -31,6 +34,9 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/push') {
       return handlePush(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/notifyNearby') {
+      return handleNotifyNearby(request, env);
     }
     return json({ error: 'Not found' }, 404);
   },
@@ -254,6 +260,102 @@ async function readFirestoreDoc(token, projectId, docPath) {
   return data.fields || {};
 }
 
+function fieldValue(fields, key) {
+  const v = fields && fields[key];
+  if (!v) return null;
+  if (v.stringValue !== undefined) return v.stringValue;
+  if (v.booleanValue !== undefined) return v.booleanValue;
+  if (v.doubleValue !== undefined) return v.doubleValue;
+  if (v.integerValue !== undefined) return Number(v.integerValue);
+  if (v.mapValue) return v.mapValue.fields;
+  if (v.arrayValue) return v.arrayValue.values;
+  return null;
+}
+
+function arrayOfStrings(fields, key) {
+  const v = fields && fields[key];
+  if (!v || !v.arrayValue) return [];
+  return (v.arrayValue.values || [])
+    .map((x) => (x && x.stringValue) || '')
+    .filter(Boolean);
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+async function listUsers(token, projectId) {
+  const users = [];
+  let pageToken = '';
+  for (let page = 0; page < 20; page++) {
+    const url =
+      'https://firestore.googleapis.com/v1/projects/' +
+      projectId +
+      '/databases/(default)/documents/users?pageSize=300' +
+      (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (!resp.ok) return users;
+    const data = await resp.json();
+    for (const doc of data.documents || []) {
+      const name = doc.name || '';
+      const uid = name.slice(name.lastIndexOf('/') + 1);
+      users.push({ uid, fields: doc.fields || {} });
+    }
+    pageToken = data.nextPageToken || '';
+    if (!pageToken) break;
+  }
+  return users;
+}
+
+async function sendFcm(sa, token, title, body) {
+  const oauth = await getOAuthToken(sa);
+  const resp = await fetch(
+    'https://fcm.googleapis.com/v1/projects/' + sa.project_id + '/messages:send',
+    {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: { token, notification: { title, body } },
+      }),
+    }
+  );
+  return resp.ok;
+}
+
+async function writeNotification(sa, notif) {
+  const oauth = await getOAuthToken(sa);
+  const id = crypto.randomUUID();
+  const name =
+    'projects/' +
+    sa.project_id +
+    '/databases/(default)/documents/notifications/' +
+    id;
+  const fields = {
+    toUid: { stringValue: notif.toUid },
+    fromName: { stringValue: notif.fromName },
+    title: { stringValue: notif.title },
+    body: { stringValue: notif.body },
+    read: { booleanValue: false },
+    createdAt: { timestampValue: new Date().toISOString() },
+  };
+  const resp = await fetch(
+    'https://firestore.googleapis.com/v1/projects/' + sa.project_id + '/databases/(default)/documents:commit',
+    {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ writes: [{ document: { name, fields } }] }),
+    }
+  );
+  return resp.ok;
+}
+
 // ─── /verify ─────────────────────────────────────────────────────────────────
 
 async function handleVerify(request, env) {
@@ -395,5 +497,99 @@ async function handlePush(request, env) {
     return json({ sent: true });
   } catch (e) {
     return json({ error: 'Push failed: ' + (e && e.message) }, 500);
+  }
+}
+
+// ─── /notifyNearby ────────────────────────────────────────────────────────────
+
+const NEARBY_RADIUS_KM = 8;
+
+async function handleNotifyNearby(request, env) {
+  const sa = getServiceAccount(env);
+  if (!sa) {
+    return json({ error: 'SERVICE_ACCOUNT is not configured on this Worker' }, 500);
+  }
+  const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
+  if (!auth) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const requestId = String(body.requestId || '');
+  if (!requestId) {
+    return json({ error: 'Missing requestId' }, 400);
+  }
+
+  try {
+    const oauth = await getOAuthToken(sa);
+
+    const reqDoc = await readFirestoreDoc(oauth, sa.project_id, 'requests/' + encodeURIComponent(requestId));
+    if (!reqDoc) {
+      return json({ error: 'Request not found' }, 404);
+    }
+    const reqLat = reqDoc.lat && reqDoc.lat.doubleValue;
+    const reqLng = reqDoc.lng && reqDoc.lng.doubleValue;
+    if (reqLat === undefined || reqLng === undefined) {
+      return json({ notified: 0, reason: 'Request has no location' });
+    }
+
+    const requesterId = fieldValue(reqDoc, 'requesterId');
+    const requesterName = fieldValue(reqDoc, 'requesterName') || 'Someone';
+    const category = fieldValue(reqDoc, 'category') || 'a request';
+
+    const users = await listUsers(oauth, sa.project_id);
+    let requesterBlocked = [];
+    for (const u of users) {
+      if (u.uid === requesterId) {
+        requesterBlocked = arrayOfStrings(u.fields, 'blockedUsers');
+        break;
+      }
+    }
+
+    const title = 'New request near you!';
+    let notified = 0;
+    for (const u of users) {
+      if (u.uid === requesterId) continue;
+      if (fieldValue(u.fields, 'notifRequests') === false) continue;
+      if (arrayOfStrings(u.fields, 'blockedUsers').includes(requesterId)) continue;
+      if (requesterBlocked.includes(u.uid)) continue;
+
+      const priv = await readFirestoreDoc(
+        oauth,
+        sa.project_id,
+        'users/' + encodeURIComponent(u.uid) + '/private/data'
+      );
+      if (!priv) continue;
+      const loc = fieldValue(priv, 'location');
+      const token = fieldValue(priv, 'fcmToken');
+      if (!loc || !token) continue;
+      const lat = fieldValue(loc, 'lat');
+      const lng = fieldValue(loc, 'lng');
+      if (lat === null || lng === null) continue;
+      if (haversineKm(reqLat, reqLng, lat, lng) > NEARBY_RADIUS_KM) continue;
+
+      const bodyMsg = requesterName + ' needs ' + category + ' near you';
+      try {
+        await sendFcm(sa, token, title, bodyMsg);
+        await writeNotification(sa, {
+          toUid: u.uid,
+          fromName: requesterName,
+          title,
+          body: requesterName + ' posted: ' + category,
+        });
+        notified++;
+      } catch (e) {
+        // keep going even if one user fails
+      }
+    }
+    return json({ notified });
+  } catch (e) {
+    return json({ error: 'notifyNearby failed: ' + (e && e.message) }, 500);
   }
 }
