@@ -3736,7 +3736,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifRequests = true;
   ThemeMode _themeMode = ThemeMode.system;
   String _language = 'English';
-  String _appVersion = 'bv1.0.0';
+  String _appVersion = 'bv0.5.0';
 
   @override
   void initState() {
