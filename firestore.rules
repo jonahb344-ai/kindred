@@ -65,13 +65,16 @@ service cloud.firestore {
     }
 
     // ─── Chats and messages (participants only) ──────────────────────────────
+    // NOTE: do NOT use `.exists` on get() results — it always evaluates to
+    // false on this project and breaks all participant checks. Field access
+    // on get() (e.g. .data.requesterId) works; a missing request doc makes
+    // .data null and the comparison fails closed (deny), which is intended.
     match /chats/{chatId} {
       function chatRequest() {
         return get(/databases/$(database)/documents/requests/$(chatId));
       }
       function chatParticipant() {
         return signedIn()
-          && chatRequest().exists
           && (chatRequest().data.requesterId == request.auth.uid
               || chatRequest().data.volunteerId == request.auth.uid);
       }
@@ -88,7 +91,6 @@ service cloud.firestore {
     match /notifications/{id} {
       function notifChatParticipant() {
         return resource.data.chatId != null
-          && get(/databases/$(database)/documents/requests/$(resource.data.chatId)).exists
           && (get(/databases/$(database)/documents/requests/$(resource.data.chatId)).data.requesterId == request.auth.uid
               || get(/databases/$(database)/documents/requests/$(resource.data.chatId)).data.volunteerId == request.auth.uid);
       }

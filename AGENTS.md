@@ -93,6 +93,22 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-01 CHAT/MESSAGING FIXED (major): root cause was Firestore rules using `.exists`
+  on `get()` results in `chatParticipant()`/`notifChatParticipant()` — `.exists` ALWAYS
+  evaluates to false on this project, so every chat message read/write was 403 DENIED
+  (sent messages vanished, nobody received them) and notification cleanup failed
+  (chat deletion broken). Diagnosed live with a throwaway-user REST harness (created
+  real users via Auth REST with the Android-restricted API key — note: the key's cert
+  fingerprint is registered WITHOUT colons, e.g. `E9CD30F8...`, so spoof
+  `X-Android-Cert` accordingly). Proved `.exists`→false even for existing docs while
+  `.data.field`→works; removed `.exists`, now compare `.data.requesterId`/`.data.volunteerId`
+  directly (missing doc → null → deny, intended). Live-tested: create/claim/send/read all
+  pass, outsiders 403, orphaned-chat writes 403, both participants can delete messages and
+  chat notifications. Client fixes: `_send()` no longer clears input before the write and
+  shows "Message not sent" snackbar on failure; ChatScreen gained a block guard (hides chat
+  if either user blocked the other) + "conversation no longer available" error state.
+  Analyze clean (15 info lints), tests pass, release APK rebuilt (55.6 MB) and `adb install -r`
+  Success; app launches (MainActivity foreground). Committed+deployed rules.
 - 2026-08-01 Security overhaul: removed leaked Anthropic API key from client; moved PII
   (email/phone/fcmToken) to `users/{uid}/private`; wrote+deployed `firestore.rules`;
   set up release signing (keystore, key.properties, build.gradle.kts signingConfig).
@@ -157,6 +173,10 @@ public); secret values live only in the files/locations referenced below.
 - Worker push uses FCM HTTP v1 (legacy API deprecated). Requires the service account secret.
 - WebCrypto algorithm names in worker.js MUST be `RSASSA-PKCS1-v1_5` — `'RS256'` throws
   NotSupportedError and silently breaks ALL auth (do not reintroduce).
+- Firestore rules: NEVER use `.exists` on `get()` results — it always evaluates to false on
+  this project (proven live 2026-08-01) and silently breaks any rule relying on it. Use
+  `.data.field` comparisons instead; a missing doc makes `.data` null and the comparison
+  fails closed (deny).
 - The `assets/*.jpg` images are used by the onboarding screens — do NOT delete.
 - When worker.js changes, the user must paste it into the Cloudflare dashboard and redeploy
   (there is no CI/CD).

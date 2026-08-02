@@ -2324,11 +2324,29 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  String? _blocked;
 
   @override
   void initState() {
     super.initState();
+    _checkBlocked();
     _markChatRead();
+  }
+
+  Future<void> _checkBlocked() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final myDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (List<String>.from(myDoc.data()?['blockedUsers'] ?? []).contains(widget.otherUid)) {
+        if (mounted) setState(() => _blocked = 'You blocked this user. Unblock them from their profile to chat again.');
+        return;
+      }
+      final otherDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
+      if (List<String>.from(otherDoc.data()?['blockedUsers'] ?? []).contains(uid)) {
+        if (mounted) setState(() => _blocked = 'You can\'t message this user anymore.');
+      }
+    } catch (_) {}
   }
 
   Future<void> _markChatRead() async {
@@ -2348,40 +2366,46 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final myBlocked = await _getBlockedUsers(user.uid);
-    if (myBlocked.contains(widget.otherUid)) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You blocked this user. Unblock them to send messages.')));
-      return;
-    }
-    final otherDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
-    if (List<String>.from(otherDoc.data()?['blockedUsers'] ?? []).contains(user.uid)) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You can no longer message this user.')));
+    try {
+      final myBlocked = await _getBlockedUsers(user.uid);
+      if (myBlocked.contains(widget.otherUid)) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You blocked this user. Unblock them to send messages.')));
+        return;
+      }
+      final otherDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
+      if (List<String>.from(otherDoc.data()?['blockedUsers'] ?? []).contains(user.uid)) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You can no longer message this user.')));
+        return;
+      }
+      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
+        'senderId': user.uid, 'senderName': user.displayName, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message not sent. Check your connection and try again.')));
       return;
     }
     _controller.clear();
 
-    await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
-      'senderId': user.uid, 'senderName': user.displayName, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
-    });
-
     // Send notification if the receiver has message notifications enabled
-    final receiverDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
-    final notifMessages = receiverDoc.data()?['notifMessages'] ?? true;
+    try {
+      final receiverDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
+      final notifMessages = receiverDoc.data()?['notifMessages'] ?? true;
 
-    if (notifMessages) {
-      await _sendPushNotification(widget.otherUid, user.displayName ?? 'Kindred', text);
-    }
+      if (notifMessages) {
+        await _sendPushNotification(widget.otherUid, user.displayName ?? 'Kindred', text);
+      }
 
-    // Save in-app notification with read status
-    await FirebaseFirestore.instance.collection('notifications').add({
-      'toUid': widget.otherUid,
-      'fromName': user.displayName,
-      'title': user.displayName ?? 'New Message',
-      'body': text,
-      'chatId': widget.chatId,
-      'read': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+      // Save in-app notification with read status
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'toUid': widget.otherUid,
+        'fromName': user.displayName,
+        'title': user.displayName ?? 'New Message',
+        'body': text,
+        'chatId': widget.chatId,
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
 
     await Future.delayed(const Duration(milliseconds: 100));
     if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
@@ -2421,10 +2445,24 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Column(children: [
+      body: _blocked != null
+          ? Padding(
+              padding: const EdgeInsets.all(32),
+              child: Center(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.block_rounded, color: Colors.redAccent, size: 56),
+                  const SizedBox(height: 16),
+                  Text(_blocked!, textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 15)),
+                ]),
+              ),
+            )
+          : Column(children: [
         Expanded(child: StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').orderBy('createdAt').snapshots(),
           builder: (context, snap) {
+            if (snap.hasError) {
+              return Center(child: Text('This conversation is no longer available.', style: TextStyle(color: kTextSecondary)));
+            }
             if (!snap.hasData || snap.data!.docs.isEmpty) {
               return Center(child: Text('No messages yet. Say hello!', style: TextStyle(color: kTextSecondary)));
             }
