@@ -122,6 +122,9 @@ public); secret values live only in the files/locations referenced below.
   (user 0 only) never removed. Fixed with `adb uninstall --user 10 com.example.kindred_app`,
   then `adb install apks\v0.1.0\kindred.apk` → Success. App verified running in foreground
   (mCurrentFocus = com.example.kindred_app/.MainActivity). Committed as fc7d7d4 + pushed.
+- 2026-08-01 Re-uploaded `kindred.apk` to the v0.1.0 GitHub release (asset id 498487304, replaced
+  old 498446948). README `releases/latest/download/kindred.apk` verified byte-identical to
+  `apks\v0.1.0\kindred.apk` (SHA-256 `1D97249743C83BA3AE61C11FA3368F4D334B3105DC45E2F91E7EB8DF0BBC4ABE`).
 
 ## Known gotchas / decisions
 - User decision: Spark plan only (no card/billing), Cloudflare Worker free tier, public repo,
