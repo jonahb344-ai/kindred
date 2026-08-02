@@ -49,3 +49,6 @@ app.*.map.json
 android/key.properties
 *.jks
 *.keystore
+
+# Local APK archives (kept out of the public repo)
+/apks/

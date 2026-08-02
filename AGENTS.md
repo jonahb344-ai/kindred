@@ -18,7 +18,12 @@ public); secret values live only in the files/locations referenced below.
 
 ## Current status
 - Released v0.1.0 with signed APK on GitHub Releases; download link verified (byte-identical
-  SHA-256). APK kept in `apks\v0.1.0\kindred.apk` (55.5 MB).
+  SHA-256). APK kept in `apks\v0.1.0\kindred.apk` (55.6 MB).
+- Email/password sign-up ADDED with email verification: LoginScreen now has a Google button +
+  a "Sign In / Create Account" tabbed email form (name, email, password). New email users get a
+  Firebase verification email (`sendEmailVerification`); unverified email/password users are
+  blocked by a VerifyEmailScreen gate in AuthGate (resend + "I've verified" + sign out). Requires
+  the Email/Password provider to be ENABLED in Firebase Console Authentication → Sign-in method.
 - Share features are intentionally GATED for beta: Share app / Share Profile show a snackbar
   "Sharing comes with the full app release — Kindred is in beta!". The QR code image was
   removed (it was a share feature); the QR icon still opens a restored profile sheet showing
@@ -105,6 +110,12 @@ public); secret values live only in the files/locations referenced below.
 - 2026-08-01 Share features gated for beta (Share app, Share Profile, QR) with snackbar;
   QR image removed; profile sheet restored with gated button; share_plus + qr_flutter imports
   removed; analyze clean; APK rebuilt + saved to `apks\v0.1.0\kindred.apk`.
+- 2026-08-01 Email/password auth added: LoginScreen has a Google button + Sign In/Create Account
+  email form (shared `_ensureUserDoc` helper for both flows, friendly error mapping). New users
+  get a Firebase verification email; AuthGate blocks unverified email/password users behind a
+  new VerifyEmailScreen (resend, "I've verified" reload+continue, sign out). Requires
+  Email/Password provider enabled in Firebase Console. Analyze clean, tests pass, APK rebuilt
+  (SHA-256 `1D97249743C83BA3AE61C11FA3368F4D334B3105DC45E2F91E7EB8DF0BBC4ABE`).
 
 ## Known gotchas / decisions
 - User decision: Spark plan only (no card/billing), Cloudflare Worker free tier, public repo,

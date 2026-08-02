@@ -589,8 +589,11 @@ class AuthGate extends StatelessWidget {
           return Scaffold(body: Center(child: CircularProgressIndicator(color: kAccent)));
         }
         if (snapshot.hasData) {
+          final user = snapshot.data!;
+          final isEmailUser = user.providerData.any((p) => p.providerId == 'password');
+          if (isEmailUser && !user.emailVerified) return const VerifyEmailScreen();
           return FutureBuilder<DocumentSnapshot>(
-            future: FirebaseFirestore.instance.collection('users').doc(snapshot.data!.uid).get(),
+            future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
             builder: (context, userSnap) {
               if (userSnap.connectionState == ConnectionState.waiting) {
                 return Scaffold(body: Center(child: CircularProgressIndicator(color: kAccent)));
@@ -620,6 +623,39 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
+  bool _isSignUp = false;
+  bool _obscure = true;
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _nameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _ensureUserDoc(User user) async {
+    final doc = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final snap = await doc.get();
+    if (!snap.exists) {
+      await doc.set({
+        'name': user.displayName ?? user.email ?? 'Neighbor', 'username': '', 'bio': '',
+        'photoUrl': user.photoURL ?? '', 'bannerColor': 0xFF7BAE8A,
+        'frameStyle': 'none', 'kindnessScore': 0, 'level': 'Newcomer',
+        'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
+        'setupDone': false, 'tutorialDone': false, 'blockedUsers': [],
+        'notifMessages': true, 'notifRequests': true, 'language': 'English',
+        'joinedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    final token = await FirebaseMessaging.instance.getToken();
+    await FirebaseFirestore.instance
+        .collection('users').doc(user.uid).collection('private').doc('data')
+        .set({'email': user.email, 'phone': '', 'fcmToken': token}, SetOptions(merge: true));
+  }
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
@@ -630,36 +666,86 @@ class _LoginScreenState extends State<LoginScreen> {
       final credential = GoogleAuthProvider.credential(accessToken: googleAuth.accessToken, idToken: googleAuth.idToken);
       final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCredential.user;
-      if (user != null) {
-        final doc = FirebaseFirestore.instance.collection('users').doc(user.uid);
-        final snap = await doc.get();
-        if (!snap.exists) {
-          await doc.set({
-            'name': user.displayName, 'username': '', 'bio': '',
-            'photoUrl': user.photoURL, 'bannerColor': 0xFF7BAE8A,
-            'frameStyle': 'none', 'kindnessScore': 0, 'level': 'Newcomer',
-            'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
-            'setupDone': false, 'tutorialDone': false, 'blockedUsers': [],
-            'notifMessages': true, 'notifRequests': true, 'language': 'English',
-            'joinedAt': FieldValue.serverTimestamp(),
-          });
+      if (user != null) await _ensureUserDoc(user);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _submitWithEmail() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final name = _nameController.text.trim();
+    if (!_isValidEmail(email)) {
+      _toast('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      _toast('Password must be at least 6 characters.');
+      return;
+    }
+    if (_isSignUp && name.isEmpty) {
+      _toast('Please enter your name.');
+      return;
+    }
+    setState(() => _isLoading = true);
+    try {
+      if (_isSignUp) {
+        final userCredential = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(email: email, password: password);
+        final user = userCredential.user;
+        if (user != null) {
+          await user.updateProfile(displayName: name);
+          await _ensureUserDoc(user);
+          await user.sendEmailVerification();
         }
-        // Save private data (email, phone, FCM token) in a locked-down subcollection
-        final token = await FirebaseMessaging.instance.getToken();
-        await FirebaseFirestore.instance
-            .collection('users').doc(user.uid).collection('private').doc('data')
-            .set({'email': user.email, 'phone': '', 'fcmToken': token}, SetOptions(merge: true));
+      } else {
+        final userCredential = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(email: email, password: password);
+        final user = userCredential.user;
+        if (user != null) await _ensureUserDoc(user);
       }
     } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
+      _toast(_friendlyAuthError(e));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  bool _isValidEmail(String email) {
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+  }
+
+  String _friendlyAuthError(Object error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'email-already-in-use': return 'That email is already registered. Try signing in instead.';
+        case 'invalid-email': return 'That email address doesn\'t look right.';
+        case 'weak-password': return 'Password must be at least 6 characters.';
+        case 'user-not-found': return 'No account found with that email.';
+        case 'wrong-password':
+        case 'invalid-credential': return 'Incorrect email or password.';
+        case 'too-many-requests': return 'Too many attempts. Please try again later.';
+        case 'network-request-failed': return 'No internet connection. Check your connection and try again.';
+        case 'user-disabled': return 'This account has been disabled.';
+        case 'operation-not-allowed': return 'Email sign-in isn\'t enabled yet. Please try Google instead.';
+      }
+    }
+    return 'Something went wrong: $error';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kBackground,
+      resizeToAvoidBottomInset: true,
       body: Stack(children: [
         Positioned.fill(child: Image.asset(kImgNeighborhood, fit: BoxFit.cover)),
         Positioned.fill(child: Container(
@@ -671,11 +757,10 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         )),
         SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(28),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(28, 48, 28, 28),
             child: Column(
               children: [
-                const Spacer(),
                 _StaggerIn(child: Column(children: [
                   Container(
                     width: 92, height: 92,
@@ -691,7 +776,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 8),
                   const Text('Neighbors helping neighbors.', style: TextStyle(fontSize: 15, color: Colors.white70)),
                 ])),
-                const Spacer(),
+                const SizedBox(height: 36),
                 _StaggerIn(delayMs: 120, child: Column(mainAxisSize: MainAxisSize.min, children: [
                   _Pressable(
                     onTap: _isLoading ? null : _signInWithGoogle,
@@ -712,15 +797,239 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  const Text('By continuing you agree to our Terms of Service', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                  const SizedBox(height: 18),
+                  Row(children: [
+                    const Expanded(child: Divider(color: Colors.white24)),
+                    const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('or with email', style: TextStyle(fontSize: 12, color: Colors.white70))),
+                    const Expanded(child: Divider(color: Colors.white24)),
+                  ]),
                 ])),
+                const SizedBox(height: 18),
+                _StaggerIn(delayMs: 200, child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: kCard,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 24, offset: const Offset(0, 10))],
+                  ),
+                  child: Column(children: [
+                    Row(children: [
+                      Expanded(child: _loginTab('Sign In', !_isSignUp, () => setState(() => _isSignUp = false))),
+                      const SizedBox(width: 8),
+                      Expanded(child: _loginTab('Create Account', _isSignUp, () => setState(() => _isSignUp = true))),
+                    ]),
+                    const SizedBox(height: 16),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      child: _isSignUp
+                          ? Column(key: const ValueKey('signup'), crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              _loginField(_nameController, 'Your name', Icons.person_outline_rounded, textCapitalization: TextCapitalization.words),
+                              const SizedBox(height: 12),
+                              _loginField(_emailController, 'Email', Icons.mail_outline_rounded, keyboardType: TextInputType.emailAddress),
+                              const SizedBox(height: 12),
+                              _passwordField(),
+                            ])
+                          : Column(key: const ValueKey('signin'), children: [
+                              _loginField(_emailController, 'Email', Icons.mail_outline_rounded, keyboardType: TextInputType.emailAddress),
+                              const SizedBox(height: 12),
+                              _passwordField(),
+                            ]),
+                    ),
+                    const SizedBox(height: 18),
+                    _KindredButton(
+                      label: _isSignUp ? 'Create Account' : 'Sign In',
+                      loading: _isLoading,
+                      onPressed: _isLoading ? null : _submitWithEmail,
+                    ),
+                  ]),
+                )),
+                const SizedBox(height: 20),
+                const Text('By continuing you agree to our Terms of Service', style: TextStyle(fontSize: 11, color: Colors.white70)),
                 const SizedBox(height: 28),
               ],
             ),
           ),
         ),
       ]),
+    );
+  }
+
+  Widget _loginTab(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: _isLoading ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? kAccent : kCardLight,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13, fontWeight: FontWeight.w700,
+            color: active ? Colors.white : kTextSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _loginDecoration(String hint, IconData icon) => InputDecoration(
+    hintText: hint,
+    hintStyle: TextStyle(color: kTextSecondary),
+    prefixIcon: Icon(icon, color: kTextSecondary, size: 20),
+    filled: true,
+    fillColor: kCardLight,
+    contentPadding: const EdgeInsets.symmetric(vertical: 14),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: kDivider)),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: kAccent, width: 1.5)),
+  );
+
+  Widget _loginField(TextEditingController controller, String hint, IconData icon,
+      {TextInputType? keyboardType, TextCapitalization textCapitalization = TextCapitalization.none}) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
+      style: TextStyle(color: kTextPrimary),
+      cursorColor: kAccent,
+      decoration: _loginDecoration(hint, icon),
+    );
+  }
+
+  Widget _passwordField() {
+    return TextField(
+      controller: _passwordController,
+      obscureText: _obscure,
+      style: TextStyle(color: kTextPrimary),
+      cursorColor: kAccent,
+      onSubmitted: (_) { if (!_isLoading) _submitWithEmail(); },
+      decoration: _loginDecoration('Password', Icons.lock_outline_rounded).copyWith(
+        suffixIcon: IconButton(
+          icon: Icon(_obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: kTextSecondary, size: 20),
+          onPressed: () => setState(() => _obscure = !_obscure),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── VERIFY EMAIL ─────────────────────────────────────────────────────────────
+
+class VerifyEmailScreen extends StatefulWidget {
+  const VerifyEmailScreen({super.key});
+  @override
+  State<VerifyEmailScreen> createState() => _VerifyEmailScreenState();
+}
+
+class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
+  bool _sending = false;
+  bool _checking = false;
+
+  User? get _user => FirebaseAuth.instance.currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshStatus());
+  }
+
+  Future<void> _refreshStatus() async {
+    final user = _user;
+    if (user == null) return;
+    await user.reload();
+    final fresh = FirebaseAuth.instance.currentUser;
+    if (fresh != null && fresh.emailVerified && mounted) {
+      await _goNext(fresh);
+    }
+  }
+
+  Future<void> _goNext(User user) async {
+    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final data = doc.data();
+    final setupDone = data?['setupDone'] ?? false;
+    final tutorialDone = data?['tutorialDone'] ?? false;
+    if (!mounted) return;
+    final next = setupDone
+        ? (tutorialDone ? const MainScreen() : const TutorialScreen())
+        : const OnboardingScreen();
+    await Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => next), (route) => false);
+  }
+
+  Future<void> _resend() async {
+    setState(() => _sending = true);
+    try {
+      await _user?.sendEmailVerification();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Verification email sent — check your inbox.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _checkVerified() async {
+    setState(() => _checking = true);
+    final user = _user;
+    if (user == null) return;
+    await user.reload();
+    final fresh = FirebaseAuth.instance.currentUser;
+    if (fresh != null && fresh.emailVerified && mounted) {
+      await _goNext(fresh);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not verified yet. Open the email and tap the link.')));
+    }
+    if (mounted) setState(() => _checking = false);
+  }
+
+  Future<void> _signOut() async {
+    await FirebaseAuth.instance.signOut();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final email = _user?.email ?? '';
+    return Scaffold(
+      backgroundColor: kBackground,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: Column(children: [
+            const SizedBox(height: 44),
+            Container(
+              width: 92, height: 92,
+              decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(28)),
+              child: Icon(Icons.mark_email_read_rounded, color: kAccent, size: 46),
+            ),
+            const SizedBox(height: 26),
+            Text('Verify your email', textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: kTextPrimary, letterSpacing: -0.5)),
+            const SizedBox(height: 12),
+            Text('We sent a verification link to', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: kTextSecondary)),
+            const SizedBox(height: 2),
+            Text(email, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kAccent)),
+            const SizedBox(height: 10),
+            Text('Open the email and tap the link to verify your account. Don\'t see it? Check your spam folder.', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: kTextSecondary, height: 1.5)),
+            const SizedBox(height: 34),
+            _KindredButton(label: 'I\'ve verified — Continue', loading: _checking, onPressed: _checking ? null : _checkVerified),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: _sending ? null : _resend,
+              child: Text('Resend verification email', style: TextStyle(color: kAccent, fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(height: 18),
+            TextButton(
+              onPressed: _signOut,
+              child: Text('Sign out', style: TextStyle(color: kTextSecondary)),
+            ),
+          ]),
+        ),
+      ),
     );
   }
 }
