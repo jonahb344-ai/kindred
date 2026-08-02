@@ -101,6 +101,10 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-02 SESSION SAVED (Jonah restarting VS Code). Everything committed + pushed; working
+  tree clean at commit 5bca369. Current release: v0.5.0 (see Current status above). All session
+  work (chat Done button, chat presence, dialog button layout, Messages-tab merge fix, map-claim
+  notify, version bump) is in the log below + on origin/main. No secrets in repo.
 - 2026-08-02 Bumped app version to 0.5.0 everywhere: pubspec.yaml `version: 0.5.0+1`
   (drives Android versionName via flutter.versionName), `_appVersion` fallback in
   lib/main.dart -> 'bv0.5.0'. Rebuilt release APK (versionName verified 0.5.0 via aapt;
