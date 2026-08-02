@@ -129,9 +129,9 @@ public); secret values live only in the files/locations referenced below.
   present since initial commit 3d07b11) RESOLVED: the Firebase Android API key was restricted in
   Google Cloud Console to the Kindred Android app (package com.example.kindred_app + RELEASE SHA-1
   E9:CD:30:F8:BD:98:DC:1F:11:0C:A5:54:F1:12:E4:8F:C5:7F:D7:BA) by the user. Debug SHA-1
-  (D6:49:C4:41:F5:67:6A:71:FC:7E:F7:6C:7F:08:FB:1B:9C:97:F4:54) was NOT added, so `flutter run`
-  debug builds will fail Firebase auth until it is added. Note: google-services.json MUST stay
-  committed (build requirement); the key is client-side, restriction is the correct mitigation.
+  (D6:49:C4:41:F5:67:6A:71:FC:7E:F7:6C:7F:08:FB:1B:9C:97:F4:54) was added later the same day, so
+  debug `flutter run` builds work too. Note: google-services.json MUST stay committed (build
+  requirement); the key is client-side, restriction is the correct mitigation.
 
 ## Known gotchas / decisions
 - User decision: Spark plan only (no card/billing), Cloudflare Worker free tier, public repo,
