@@ -98,6 +98,46 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-01 Chat Done button + real dialog button fix. (1) ChatScreen now has a check-circle
+  "Done" action (AppBar) that ONLY appears for the VOLUNTEER while the request is `claimed`:
+  tapping it shows a "Done helping?" thank-you dialog, marks the request `completed` (new rule:
+  either participant may set status -> completed; deployed to Firestore), writes a thank-you
+  note volunteer->requester, awards the volunteer points, push + in-app notifies the requester,
+  confetti. NOTE: the 2026-08-01 "dialog button rule" entry was WRONG — buttons were still
+  stacking. Root cause: `AlertDialog.actions` renders via `OverflowBar`; two direct children
+  wrap onto separate rows (Delete landed below Cancel) when they don't fit one row. REAL fix:
+  every two-button dialog now puts both buttons inside a single `FittedBox(scaleDown) >
+  Row(min)` child, so they're always ONE line, never wrapped/clipped. Destructive dialogs:
+  Cancel LEFT + action RIGHT; non-destructive: action LEFT + Cancel/Skip RIGHT. Applied to
+  `_KindredDialog`, the "Send a Thank You" dialog, and the new "Done helping?" dialog.
+  Analyze clean (18 info style lints — 3 new from the if/else level chain, same pattern as
+  existing code), tests pass, rules deployed, release APK rebuilt (SHA-256
+  `BD0FA41A9FD1E68386D95BB8AB0D11AC13CA46FDC1D9E2B98A420E8F7C199237`), installed on phone
+  (adb -r Success, launched), saved to apks\v0.1.0\kindred.apk. NOT yet committed.
+- 2026-08-01 Chat presence + dialog button order. (1) In-app chat presence: ChatScreen now
+  writes `chats/{chatId}` `presence.{myUid}` = serverTimestamp on open and deletes it on
+  dispose; `_send()` skips the FCM push AND the in-app notification when the receiver's
+  presence timestamp for that chat is < 60s old (so the person reading the chat isn't
+  pinged). Uses the existing `chats/{chatId}` participant read/write rule — no rules change.
+  (2) Dialog button rule: destructive dialogs (Delete chat/request/account, Block) show
+  Cancel LEFT + action RIGHT; non-destructive confirmations (e.g. "I'll help" claim, Send
+  a Thank You) show the action/OK LEFT + Cancel/Skip RIGHT. `_KindredDialog` now orders by
+  the `destructive` flag; the "Send a Thank You" AlertDialog flipped to Send LEFT/Skip RIGHT.
+  Analyze clean (15 info lints), tests pass, release APK rebuilt (SHA-256
+  `42BC4ABFAD52C43DCBF53F6EDDFB4724A691EDA1BBBD80BCF06B9FFFD9AF2A11`), installed on phone
+  (adb -r Success), saved to apks\v0.1.0\kindred.apk. NOT yet committed.
+- 2026-08-01 Fixed Messages-tab visibility bug: `_chatStreams` merged the requester and
+  volunteer request-queries by pushing EACH raw snapshot into a StreamController, so the
+  list only ever showed ONE query's snapshot at a time (whichever arrived last). The
+  requester's empty volunteer-query could override and hide their claimed conversation —
+  only the claimer saw it. Rewrote to keep both latest snapshots and emit a deduped
+  combined `List<QueryDocumentSnapshot>`. Also: the map-detail "I'll Help" claim path now
+  notifies the requester (push + in-app notification) via a shared `_completeClaim()`
+  helper (previously only the feed claim path notified). Analyze clean (15 info lints),
+  tests pass, release APK rebuilt (SHA-256
+  `17815469BCA54D6F114FF2B9BA41F14D80D51C6B8324C3E4CAB43ABDF8EC7E65`), installed on phone
+  (adb -r Success), saved to apks\v0.1.0\kindred.apk. Emulator not connected during this
+  install — re-install there from the saved APK when it is.
 - 2026-08-01 Deployed worker via WRANGLER CLI (dashboard editor is read-only on Jonah's
   account). `npx.cmd wrangler login` (account c9e624deea5ecde4a88898133608c639) then
   `npx.cmd wrangler deploy worker/worker.js --name kindred --compatibility-date 2026-08-02`.
@@ -204,6 +244,11 @@ public); secret values live only in the files/locations referenced below.
   this project (proven live 2026-08-01) and silently breaks any rule relying on it. Use
   `.data.field` comparisons instead; a missing doc makes `.data` null and the comparison
   fails closed (deny).
+- Dialog buttons: NEVER put two buttons as direct children of `AlertDialog.actions` — it
+  renders via `OverflowBar` and wraps them onto separate rows when they don't fit one line.
+  Always wrap both in a single `FittedBox(fit: scaleDown, alignment: centerRight) >
+  Row(mainAxisSize: min)` so they stay on one line. Destructive dialogs = Cancel LEFT +
+  action RIGHT; non-destructive = action LEFT + Cancel/Skip RIGHT.
 - The `assets/*.jpg` images are used by the onboarding screens — do NOT delete.
 - When worker.js changes, redeploy with `npx.cmd wrangler deploy worker/worker.js
   --name kindred --compatibility-date 2026-08-02` (dashboard editor is read-only on Jonah's

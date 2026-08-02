@@ -49,8 +49,8 @@ service cloud.firestore {
         resource.data.status == 'open' || isRequester() || isVolunteer()
       );
       allow update: if signedIn() && (
-        // Requester completes the request
-        (isRequester()
+        // Either participant completes the request
+        (isParticipant()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
           && request.resource.data.status == 'completed')
         ||

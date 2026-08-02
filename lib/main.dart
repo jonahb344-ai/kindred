@@ -2015,21 +2015,7 @@ class RequestCard extends StatelessWidget {
     ));
     if (confirmed != true) return;
 
-    await FirebaseFirestore.instance.collection('requests').doc(docId).update({
-      'status': 'claimed', 'volunteerId': user.uid, 'volunteerName': user.displayName, 'claimedAt': FieldValue.serverTimestamp(),
-    });
-
-    // Send notification to requester
-    await _sendPushNotification(data['requesterId'] as String, 'Someone is coming to help!', '${user.displayName} claimed your ${data['category']} request.');
-
-    // Save in-app notification
-    await FirebaseFirestore.instance.collection('notifications').add({
-      'toUid': data['requesterId'],
-      'title': 'Someone is coming to help!',
-      'body': '${user.displayName} claimed your ${data['category']} request.',
-      'read': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    await _completeClaim(data, docId);
 
     if (context.mounted) {
       _hapticHeavy();
@@ -2050,8 +2036,14 @@ class RequestCard extends StatelessWidget {
             decoration: InputDecoration(hintText: 'Thank you so much for...', hintStyle: TextStyle(color: kTextSecondary), filled: true, fillColor: kCardLight, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
       ]),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, ''), child: Text('Skip', style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
-        _KindredButton(label: 'Send', onPressed: () => Navigator.pop(context, noteController.text.trim()), compact: true, fullWidth: false),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            _KindredButton(label: 'Send', onPressed: () => Navigator.pop(context, noteController.text.trim()), compact: true, fullWidth: false),
+            TextButton(onPressed: () => Navigator.pop(context, ''), child: Text('Skip', style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
+          ]),
+        ),
       ],
     ));
 
@@ -2270,6 +2262,29 @@ Future<void> _sendPushNotification(String targetUid, String title, String body) 
   } catch (_) {}
 }
 
+Future<void> _completeClaim(Map<String, dynamic> data, String docId) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+  await FirebaseFirestore.instance.collection('requests').doc(docId).update({
+    'status': 'claimed', 'volunteerId': user.uid, 'volunteerName': user.displayName, 'claimedAt': FieldValue.serverTimestamp(),
+  });
+  final requesterId = data['requesterId'];
+  final category = data['category'] ?? 'a request';
+  if (requesterId != null && requesterId != user.uid) {
+    await _sendPushNotification(requesterId as String, 'Someone is coming to help!', '${user.displayName} claimed your $category request.');
+    try {
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'toUid': requesterId,
+        'fromName': user.displayName,
+        'title': 'Someone is coming to help!',
+        'body': '${user.displayName} claimed your $category request.',
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+}
+
 Future<Position?> _getCurrentPosition() async {
   try {
     if (!await Geolocator.isLocationServiceEnabled()) return null;
@@ -2410,6 +2425,28 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _checkBlocked();
     _markChatRead();
+    _setChatPresence(true);
+  }
+
+  @override
+  void dispose() {
+    _setChatPresence(false);
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _setChatPresence(bool present) async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      if (present) {
+        await chatRef.set({'presence': {uid: FieldValue.serverTimestamp()}}, SetOptions(merge: true));
+      } else {
+        await chatRef.update({'presence.$uid': FieldValue.delete()});
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkBlocked() async {
@@ -2465,29 +2502,115 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _controller.clear();
 
-    // Send notification if the receiver has message notifications enabled
+    // Don't notify the receiver if they're already viewing this chat
+    bool receiverInChat = false;
     try {
-      final receiverDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
-      final notifMessages = receiverDoc.data()?['notifMessages'] ?? true;
+      final chatDoc = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+      final presence = chatDoc.data()?['presence'] as Map<String, dynamic>?;
+      final theirTs = presence?[widget.otherUid] as Timestamp?;
+      if (theirTs != null && DateTime.now().difference(theirTs.toDate()).inSeconds < 60) receiverInChat = true;
+    } catch (_) {}
 
-      if (notifMessages) {
-        await _sendPushNotification(widget.otherUid, user.displayName ?? 'Kindred', text);
+    if (!receiverInChat) {
+      // Send notification if the receiver has message notifications enabled
+      try {
+        final receiverDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
+        final notifMessages = receiverDoc.data()?['notifMessages'] ?? true;
+
+        if (notifMessages) {
+          await _sendPushNotification(widget.otherUid, user.displayName ?? 'Kindred', text);
+        }
+
+        // Save in-app notification with read status
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'toUid': widget.otherUid,
+          'fromName': user.displayName,
+          'title': user.displayName ?? 'New Message',
+          'body': text,
+          'chatId': widget.chatId,
+          'read': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {}
+    }
+
+    await Future.delayed(const Duration(milliseconds: 100));
+    if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+  }
+
+  Future<void> _completeRequestFromChat(DocumentSnapshot requestSnap) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final data = requestSnap.data() as Map<String, dynamic>?;
+    if (data == null) return;
+    final requesterId = data['requesterId'] as String?;
+    final requesterName = data['requesterName'] ?? 'your neighbor';
+    final category = data['category'] ?? 'favor';
+    if (requesterId == null) return;
+
+    final noteController = TextEditingController();
+    final note = await showDialog<String>(context: context, builder: (_) => AlertDialog(
+      backgroundColor: kCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Text('Done helping?', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700)),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('You helped with $category. Send $requesterName a thank-you note.', style: TextStyle(color: kTextSecondary)),
+        const SizedBox(height: 12),
+        TextField(controller: noteController, maxLines: 3, style: TextStyle(color: kTextPrimary),
+            decoration: InputDecoration(hintText: 'Thank you for letting me help...', hintStyle: TextStyle(color: kTextSecondary), filled: true, fillColor: kCardLight, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+      ]),
+      actions: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            _KindredButton(label: 'Done', onPressed: () => Navigator.pop(context, noteController.text.trim()), compact: true, fullWidth: false),
+            TextButton(onPressed: () => Navigator.pop(context, ''), child: Text('Skip', style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
+          ]),
+        ),
+      ],
+    ));
+
+    try {
+      await FirebaseFirestore.instance.collection('requests').doc(widget.chatId).update({'status': 'completed'});
+
+      if (note != null && note.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('thank_you_notes').add({
+          'fromUid': user.uid,
+          'fromName': user.displayName,
+          'toUid': requesterId, 'note': note, 'requestCategory': category,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       }
 
-      // Save in-app notification with read status
+      final doc = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final snap = await doc.get();
+      final currentScore = (snap.data()?['kindnessScore'] ?? 0) as int;
+      final newScore = currentScore + _currentPoints;
+      String level = 'Newcomer';
+      if (newScore >= legendThreshold) level = 'Legend';
+      else if (newScore >= championThreshold) level = 'Champion';
+      else if (newScore >= helperThreshold) level = 'Helper';
+      await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
+
+      await _sendPushNotification(requesterId, '${user.displayName} finished helping!', 'Your $category request was completed.');
       await FirebaseFirestore.instance.collection('notifications').add({
-        'toUid': widget.otherUid,
+        'toUid': requesterId,
         'fromName': user.displayName,
-        'title': user.displayName ?? 'New Message',
-        'body': text,
-        'chatId': widget.chatId,
+        'title': 'Request completed!',
+        'body': '${user.displayName} finished helping with $category.',
+        'chatId': null,
         'read': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {}
 
-    await Future.delayed(const Duration(milliseconds: 100));
-    if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    if (!mounted) return;
+    _hapticHeavy();
+    await _showConfetti(context);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Request marked done! You earned +$_currentPoints points.'), backgroundColor: kAccentDark));
+    }
   }
 
   @override
@@ -2503,6 +2626,19 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Text(widget.otherName, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700, fontSize: 17)),
         ),
         actions: [
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('requests').doc(widget.chatId).snapshots(),
+            builder: (context, snap) {
+              if (!snap.hasData) return const SizedBox.shrink();
+              final data = snap.data!.data() as Map<String, dynamic>?;
+              if (data == null || data['volunteerId'] != currentUid || data['status'] != 'claimed') return const SizedBox.shrink();
+              return IconButton(
+                tooltip: 'Mark done',
+                icon: Icon(Icons.check_circle_rounded, color: kAccent),
+                onPressed: () => _completeRequestFromChat(snap.data!),
+              );
+            },
+          ),
           PopupMenuButton<String>(
             color: kCard,
             icon: Icon(Icons.more_vert_rounded, color: kTextSecondary),
@@ -2629,15 +2765,23 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
     });
   }
 
-  Stream<QuerySnapshot> _chatStreams(String uid) {
+  Stream<List<QueryDocumentSnapshot>> _chatStreams(String uid) {
     final a = FirebaseFirestore.instance.collection('requests').where('requesterId', isEqualTo: uid).snapshots();
     final b = FirebaseFirestore.instance.collection('requests').where('volunteerId', isEqualTo: uid).snapshots();
-    final controller = StreamController<QuerySnapshot>();
+    final controller = StreamController<List<QueryDocumentSnapshot>>();
+    QuerySnapshot? latestA;
+    QuerySnapshot? latestB;
+    void emit() {
+      final combined = <String, QueryDocumentSnapshot>{};
+      for (final d in latestA?.docs ?? const <QueryDocumentSnapshot>[]) { combined[d.id] = d; }
+      for (final d in latestB?.docs ?? const <QueryDocumentSnapshot>[]) { combined[d.id] = d; }
+      controller.add(combined.values.toList());
+    }
     late final StreamSubscription<QuerySnapshot> sa;
     late final StreamSubscription<QuerySnapshot> sb;
     controller.onListen = () {
-      sa = a.listen(controller.add);
-      sb = b.listen(controller.add);
+      sa = a.listen((s) { latestA = s; emit(); });
+      sb = b.listen((s) { latestB = s; emit(); });
     };
     controller.onCancel = () async {
       await sa.cancel();
@@ -2656,15 +2800,11 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
         leading: widget.asTab ? null : IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), onPressed: () => Navigator.pop(context)),
         title: Text('Messages', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800, fontSize: 22)),
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: StreamBuilder<List<QueryDocumentSnapshot>>(
         stream: uid == null ? const Stream.empty() : _chatStreams(uid),
         builder: (context, snap) {
           if (!snap.hasData) return Center(child: CircularProgressIndicator(color: kAccent));
-          final seen = <String>{};
-          final docs = <QueryDocumentSnapshot>[];
-          for (final d in snap.data!.docs) {
-            if (seen.add(d.id)) docs.add(d);
-          }
+          final docs = snap.data!;
           final chats = docs.where((d) {
             final s = (d.data() as Map<String, dynamic>)['status'] ?? '';
             return s == 'claimed' || s == 'completed';
@@ -2927,7 +3067,7 @@ class _NearbyMapState extends State<_NearbyMap> {
             final user = FirebaseAuth.instance.currentUser;
             if (user == null) return;
             if (data['requesterId'] == user.uid) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("That's your own request!"))); return; }
-            await FirebaseFirestore.instance.collection('requests').doc(docId).update({'status': 'claimed', 'volunteerId': user.uid, 'volunteerName': user.displayName, 'claimedAt': FieldValue.serverTimestamp()});
+            await _completeClaim(data, docId);
             if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('You claimed this request!'), backgroundColor: kAccentDark)); }
           },
         ),
@@ -4421,9 +4561,18 @@ class _KindredDialog extends StatelessWidget {
       title: Text(title, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800)),
       content: SingleChildScrollView(child: Text(content, style: TextStyle(color: kTextSecondary, height: 1.5))),
       actions: [
-        if (cancelText != null)
-          TextButton(onPressed: onCancel, child: Text(cancelText!, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
-        _KindredButton(label: actionText, onPressed: onAction, destructive: destructive, compact: true, fullWidth: false),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (!destructive && cancelText != null)
+              _KindredButton(label: actionText, onPressed: onAction, destructive: destructive, compact: true, fullWidth: false),
+            if (cancelText != null)
+              TextButton(onPressed: onCancel, child: Text(cancelText!, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
+            if (destructive)
+              _KindredButton(label: actionText, onPressed: onAction, destructive: destructive, compact: true, fullWidth: false),
+          ]),
+        ),
       ],
     );
   }
