@@ -1,3 +1,24 @@
+// ============================================================
+// KINDRED — Community Mutual Aid App
+// Copyright (C) 2026 Jonah Boyd. All rights reserved.
+//
+// This program is free software: you can redistribute it
+// and/or modify it under the terms of the GNU General Public
+// License as published by the Free Software Foundation,
+// either version 3 of the License, or any later version.
+//
+// This program is distributed in the hope that it will be
+// useful, but WITHOUT ANY WARRANTY; without even the implied
+// warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+// PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public
+// License along with this program. If not, see:
+// https://www.gnu.org/licenses/
+//
+// GitHub: https://github.com/jonahb344-ai/kindred/tree/main
+// Contact: jonahb344@gmail.com
+// ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -11,8 +32,6 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
@@ -1446,7 +1465,10 @@ class HomeScreen extends StatelessWidget {
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   Text('Community', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kTextPrimary)),
                   GestureDetector(
-                    onTap: () => SharePlus.instance.share(ShareParams(text: 'I\'m using Kindred to help my community! Download it and join me.')),
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: const Text('Sharing comes with the full app release — Kindred is in beta!'),
+                      backgroundColor: kAccentDark,
+                    )),
                     child: Text('Share app', style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w600)),
                   ),
                 ]),
@@ -2630,7 +2652,7 @@ class ProfileScreen extends StatelessWidget {
     counterStyle: counter ? TextStyle(color: kTextSecondary) : null,
   );
 
-  void _showQRCode(BuildContext context, String uid, String name) {
+  void _showProfile(BuildContext context, String uid, String name) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2642,19 +2664,14 @@ class ProfileScreen extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text('Your Kindred Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kTextPrimary)),
             const SizedBox(height: 6),
-            Text('Share this to let others find you', style: TextStyle(color: kTextSecondary, fontSize: 13)),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-              child: QrImageView(data: 'kindred://user/$uid', version: QrVersions.auto, size: 180),
-            ),
-            const SizedBox(height: 16),
             Text('@$name', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
             const SizedBox(height: 24),
             _KindredButton(
               label: 'Share Profile',
-              onPressed: () => SharePlus.instance.share(ShareParams(text: 'Find me on Kindred! My user ID: $uid')),
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: const Text('Sharing comes with the full app release — Kindred is in beta!'),
+                backgroundColor: kAccentDark,
+              )),
             ),
             const SizedBox(height: 8),
           ]),
@@ -2688,7 +2705,10 @@ class ProfileScreen extends StatelessWidget {
             SliverAppBar(
               expandedHeight: 220, pinned: true, backgroundColor: kBackground,
               actions: [
-                IconButton(icon: const Icon(Icons.qr_code_rounded, color: Colors.white), onPressed: () => _showQRCode(context, user?.uid ?? '', username.isNotEmpty ? username : user?.displayName ?? '')),
+                IconButton(
+                  icon: const Icon(Icons.qr_code_rounded, color: Colors.white),
+                  onPressed: () => _showProfile(context, user?.uid ?? '', username.isNotEmpty ? username : user?.displayName ?? ''),
+                ),
                 IconButton(icon: const Icon(Icons.edit_rounded, color: Colors.white), onPressed: () => _showEditProfile(context, data ?? {}, level)),
                 IconButton(icon: const Icon(Icons.settings_rounded, color: Colors.white), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
               ],
