@@ -17,8 +17,9 @@ public); secret values live only in the files/locations referenced below.
 - Keep the work log (below) as an append-only history of significant changes with dates.
 
 ## Current status
-- Released v0.1.0 with signed APK on GitHub Releases; download link verified (byte-identical
-  SHA-256). APK kept in `apks\v0.1.0\kindred.apk` (55.6 MB).
+- Released v0.5.0 with signed APK on GitHub Releases; download link verified (byte-identical
+  SHA-256). APK kept in `apks\v0.5.0\kindred.apk` (55.6 MB). App version (pubspec + Android
+  versionName) is now 0.5.0; prior releases are v0.1.0 (history).
 - Email/password sign-up ADDED with email verification: LoginScreen now has a Google button +
   a "Sign In / Create Account" tabbed email form (name, email, password). New email users get a
   Firebase verification email (`sendEmailVerification`); unverified email/password users are
@@ -91,13 +92,25 @@ public); secret values live only in the files/locations referenced below.
 - Commit identity: Jonah Boyd <jonahb344@gmail.com>.
 - GitHub CLI not installed; auth via Git Credential Manager. A stored OAuth token can be
   retrieved with `git credential fill` (used for GitHub API calls if needed).
-- Release v0.1.0 exists (release id 363639925, not draft/prerelease) with asset `kindred.apk`.
+- Release v0.5.0 is now the LATEST release (release id 363900688, not draft/prerelease) with
+  asset `kindred.apk` (SHA-256 `ED717A2C10BF98D37B9721399A3AF87B97C7C05CC7FE4859DBAB7BA2D95A2877`).
   The README "Download the APK" button links to
-  `/releases/latest/download/kindred.apk` (verified working).
+  `/releases/latest/download/kindred.apk` (verified byte-identical to `apks\v0.5.0\kindred.apk`).
+  Older release v0.1.0 (id 363639925) kept as history.
 - README is consumer-focused (intro, features, download, license) — user does NOT want the
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-02 Bumped app version to 0.5.0 everywhere: pubspec.yaml `version: 0.5.0+1`
+  (drives Android versionName via flutter.versionName), `_appVersion` fallback in
+  lib/main.dart -> 'bv0.5.0'. Rebuilt release APK (versionName verified 0.5.0 via aapt;
+  versionCode 1), installed on phone (adb -r Success, running), saved to
+  `apks\v0.5.0\kindred.apk` (SHA-256
+  `ED717A2C10BF98D37B9721399A3AF87B97C7C05CC7FE4859DBAB7BA2D95A2877`). Tag v0.5.0 pushed;
+  GitHub release v0.5.0 created (id 363900688) with asset `kindred.apk` (asset 499293319);
+  README `/releases/latest/download/kindred.apk` verified byte-identical. Old release
+  v0.1.0 kept as history. Committed ab70b9c + pushed. NOTE: a `flutter build` hung once
+  (Gradle daemon 546s CPU) — killed the java process and rebuilt cleanly.
 - 2026-08-01 Chat Done button + real dialog button fix. (1) ChatScreen now has a check-circle
   "Done" action (AppBar) that ONLY appears for the VOLUNTEER while the request is `claimed`:
   tapping it shows a "Done helping?" thank-you dialog, marks the request `completed` (new rule:
