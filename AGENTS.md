@@ -141,8 +141,10 @@ public); secret values live only in the files/locations referenced below.
   page (on-brand HTML). App sends verification emails with
   `ActionCodeSettings(url: 'https://kindred.jonahb344.workers.dev/verified', handleCodeInApp: false)`
   so tapping the email link lands on that page. Requires: (a) redeploy worker, (b) add
-  kindred.jonahb344.workers.dev to Firebase Console Authentication -> Settings -> Authorized domains,
-  (c) customize the verification email template. APK rebuilt (SHA-256
+  kindred.jonahb344.workers.dev to Firebase Console Authentication -> Settings -> Authorized domains.
+  NOTE: Firebase LOCKS the verification-email body (anti-spam, since 2019) — only Sender name and
+  Subject are editable in the template; custom body would need sending emails ourselves via an
+  email service (e.g., Resend) from the Worker (deferred). APK rebuilt (SHA-256
   BC154004392F027BFB1A207531564E63DB3802657547458EA94BBDEFD1042A78), installed on phone (adb -r),
   uploaded to release (asset 498514290), verified byte-identical.
 
