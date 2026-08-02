@@ -6,14 +6,27 @@ favors, chat, earn points/levels, and verify acts with AI. Built by Jonah (8th g
 public on GitHub as `jonahb344-ai/kindred`. **This file contains NO secrets** (repo is
 public); secret values live only in the files/locations referenced below.
 
+## SAVING-MEMORY RULES (CRITICAL — follow every session)
+- At the END of every user command where anything meaningful happened (code change, build,
+  deploy, decision, fix, verification), UPDATE THIS FILE so nothing is lost.
+- Cadence: ~every hour of active conversation. Since the AI only acts when prompted, saving
+  happens at the end of commands, not on a timer — there is no background execution.
+- Refresh: Current status, latest version/APK, decisions, new gotchas, and the work log below.
+- NEVER write secrets/values here (password, API keys, tokens, service-account JSON). Point to
+  their file locations instead.
+- Keep the work log (below) as an append-only history of significant changes with dates.
+
 ## Current status
-- Released v0.1.0 with signed APK on GitHub Releases (download works, byte-verified).
-- Share features are intentionally GATED for beta: tapping Share app / Share Profile / QR
-  shows a snackbar "Sharing comes with the full app release — Kindred is in beta!".
-  QR code image was removed; the QR icon still opens a profile sheet (name + gated button).
+- Released v0.1.0 with signed APK on GitHub Releases; download link verified (byte-identical
+  SHA-256). APK kept in `apks\v0.1.0\kindred.apk` (55.5 MB).
+- Share features are intentionally GATED for beta: Share app / Share Profile show a snackbar
+  "Sharing comes with the full app release — Kindred is in beta!". The QR code image was
+  removed (it was a share feature); the QR icon still opens a restored profile sheet showing
+  the user's @name plus the gated Share Profile button.
 - Push notifications fully wired end-to-end (see "Push" below).
-- App store readiness NOT finished: package id is still `com.example.kindred_app`
-  (rejected by Google Play), app label is `kindred_app`, no custom icon, no privacy policy.
+- Google Sign-In release fingerprint was ADDED by the user (confirm fresh-install works).
+- App store readiness NOT finished: package id is still `com.example.kindred_app` (rejected by
+  Google Play), app label is `kindred_app`, no custom icon, no privacy policy.
 
 ## Build & commands
 - Release APK: `flutter build apk --release`
@@ -22,31 +35,37 @@ public); secret values live only in the files/locations referenced below.
 - Tests: `flutter test` (test/widget_test.dart — 2 tests, pass)
 - This machine: Windows PowerShell. Git installed at `C:\Program Files\Git\cmd\git.exe`
   (not on PATH in fresh shells). Node/firebase CLI needs
-  `NODE_OPTIONS=--dns-result-order=ipv4first` (IPv6 timeouts).
+  `NODE_OPTIONS=--dns-result-order=ipv4first` (IPv6 timeouts). winget is available.
+- flutter_local_notifications v22 API uses NAMED params: `initialize(settings:)`,
+  `show(id:, title:, body:, notificationDetails:)`.
 
 ## Signing (Android)
 - Keystore: `android\app\upload-keystore.jks` (alias `upload`)
 - Config: `android\key.properties` — contains the keystore password IN PLAINTEXT.
 - Both are gitignored — **back them up; losing them makes future app updates impossible.**
 - Release cert SHA-1: `E9:CD:30:F8:BD:98:DC:1F:11:0C:A5:54:F1:12:E4:8F:C5:7F:D7:BA`
-  (must be registered in Firebase Console Android app for Google Sign-In in release builds).
+  (registered in Firebase Console for Google Sign-In in release builds).
 - Debug SHA-1 was already registered (debug sign-in works).
+- `android/app/src/main/AndroidManifest.xml` now has INTERNET, POST_NOTIFICATIONS,
+  ACCESS_FINE/COARSE_LOCATION. The release APK previously had NO network permission (only the
+  debug manifest had INTERNET) — that was fixed and verified via `aapt dump permissions`.
 
 ## Backend
 - Firebase project `kindred-app-2fe7a` (display "kindred-app"), owner jonahb344@gmail.com,
-  **Spark free plan (no Blaze)** — no Cloud Functions; all logic on a free Cloudflare Worker.
-- Worker URL: `https://kindred.jonahb344.workers.dev` (source: `worker/worker.js`,
-  deployed by pasting into Cloudflare dashboard).
+  **Spark free plan (no Blaze)** — no Cloud Functions (abandoned; Blaze needs a card), no App
+  Distribution, no Storage. All logic on a free Cloudflare Worker.
+- Worker URL: `https://kindred.jonahb344.workers.dev` (source: `worker/worker.js`, deployed by
+  pasting into Cloudflare dashboard — remember to paste updates after code changes).
 - Worker secrets (in Cloudflare dashboard, never in code): `ANTHROPIC_API_KEY`,
-  `SERVICE_ACCOUNT` (Firebase service-account JSON). Routes require a valid Firebase ID
-  token in `Authorization: Bearer ...` (401 without). `/verify` = AI kindness check
-  (Anthropic claude-sonnet-4-6); `/push` = FCM HTTP v1 send using service account OAuth.
-- App calls the Worker via `kServerBaseUrl` const in `lib/main.dart` and sends the user's
-  ID token via `_authHeaders()`. Tokens are verified with RS256 against Google's securetoken
-  JWKS.
-- Firestore rules deployed from `firestore.rules` (users/requests/chats/notifications
-  locked to owners/participants; `users/{uid}/private/data` holds PII + fcmToken).
-- `storage.rules` exists but Firebase Storage was never enabled in the project.
+  `SERVICE_ACCOUNT` (Firebase service-account JSON). Routes require a valid Firebase ID token
+  in `Authorization: Bearer ...` (verified 401 without). `/verify` = AI kindness check
+  (Anthropic claude-sonnet-4-6); `/push` = FCM HTTP v1 send using service-account OAuth
+  (RS256 JWT signed with WebCrypto) + Firestore REST read of the target's fcmToken.
+- App calls the Worker via `kServerBaseUrl` const in `lib/main.dart` and sends the user's ID
+  token via `_authHeaders()`. Tokens are verified RS256 against Google's securetoken JWKS.
+- Firestore rules deployed from `firestore.rules` (users/requests/chats/notifications locked
+  to owners/participants; `users/{uid}/private/data` holds PII + fcmToken). `firebase.json`
+  references firestore only; `storage.rules` exists but Storage was never enabled.
 - Report-email feature uses FormSubmit → reporter address `jonahb344+kindred@gmail.com`
   (formsubmit.co one-time confirm was clicked).
 
@@ -62,13 +81,45 @@ public); secret values live only in the files/locations referenced below.
 - Commit identity: Jonah Boyd <jonahb344@gmail.com>.
 - GitHub CLI not installed; auth via Git Credential Manager. A stored OAuth token can be
   retrieved with `git credential fill` (used for GitHub API calls if needed).
-- Current git state is clean on `main`.
+- Release v0.1.0 exists (release id 363639925, not draft/prerelease) with asset `kindred.apk`.
+  The README "Download the APK" button links to
+  `/releases/latest/download/kindred.apk` (verified working).
+- README is consumer-focused (intro, features, download, license) — user does NOT want the
+  technical sections (architecture/security, build-from-source, worker deploy) or images in it.
+
+## Work log (append-only)
+- 2026-08-01 Security overhaul: removed leaked Anthropic API key from client; moved PII
+  (email/phone/fcmToken) to `users/{uid}/private`; wrote+deployed `firestore.rules`;
+  set up release signing (keystore, key.properties, build.gradle.kts signingConfig).
+- 2026-08-01 Abandoned Cloud Functions (Spark/no Blaze); built Cloudflare Worker; `/verify`
+  live-tested; later implemented `/push` (FCM HTTP v1) + auth on both routes.
+- 2026-08-01 Fixed release manifest: added INTERNET + POST_NOTIFICATIONS (+ normalized
+  location perms). Verified with aapt. This made release APK actually network-capable.
+- 2026-08-01 Wired push on the client: permission request, background handler, foreground
+  local notifications, flutter_local_notifications v22 named-param API.
+- 2026-08-01 Git for Windows installed via winget; repo initialized; public repo created;
+  branch master→main; stale remote master deleted; GPL-3.0 LICENSE preserved; README written
+  then simplified for end users; AGENTS.md added.
+- 2026-08-01 Tag v0.1.0 pushed; release created; APK asset replaced via GitHub API with the
+  current 55.5 MB build; download byte-verified. Worker endpoints re-verified 401.
+- 2026-08-01 Share features gated for beta (Share app, Share Profile, QR) with snackbar;
+  QR image removed; profile sheet restored with gated button; share_plus + qr_flutter imports
+  removed; analyze clean; APK rebuilt + saved to `apks\v0.1.0\kindred.apk`.
 
 ## Known gotchas / decisions
-- Google Sign-In fingerprint: user was reminded multiple times; confirm it's added and that
-  fresh-install release builds can log in before publicizing.
+- User decision: Spark plan only (no card/billing), Cloudflare Worker free tier, public repo,
+  GPL-3.0 license, beta-gate the share features, consumer-friendly README.
 - App name shows as `kindred_app` and package is `com.example.kindred_app` — must be fixed
-  before any app-store submission.
+  before any app-store submission (Play auto-rejects `com.example`).
 - Old Anthropic key (leaked earlier) should be revoked in the Anthropic console.
 - Worker push uses FCM HTTP v1 (legacy API deprecated). Requires the service account secret.
 - The `assets/*.jpg` images are used by the onboarding screens — do NOT delete.
+- When worker.js changes, the user must paste it into the Cloudflare dashboard and redeploy
+  (there is no CI/CD).
+
+## TODO / next steps
+- Confirm fresh-install Google Sign-In works on the release build (fingerprint was added).
+- If a new APK is built, re-upload it as `kindred.apk` to the release (API token via
+  `git credential fill`) so the README button serves the latest.
+- App store prep: change package id, app label, custom icon, privacy policy.
+- Revoke the old leaked Anthropic key.
