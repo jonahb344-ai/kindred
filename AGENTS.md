@@ -17,6 +17,12 @@ public); secret values live only in the files/locations referenced below.
 - Keep the work log (below) as an append-only history of significant changes with dates.
 
 ## Current status
+- Badges/thank-you notes/"Describe your own act" now use theme-aware `kBadge` token: BLUE
+  `#3B82F6` in LIGHT mode, dark mode UNCHANGED (stays teal `#2DD4BF`). Switched from gold
+  `#D97706` on user request (gold didn't fit the vibe). Applied to `_BadgeChip` (bg tint/border/
+  icon/text), both thank-you-note lists (empty-state icon, card tint/border, "From X" text), and
+  the "Describe your own act" tile (border/icon tile/icon) in lib/main.dart. Release APK rebuilt
+  + installed on phone (running). Version still 0.5.0. NOT committed.
 - Released v0.5.0 with signed APK on GitHub Releases; download link verified (byte-identical
   SHA-256). APK kept in `apks\v0.5.0\kindred.apk` (55.6 MB). App version (pubspec + Android
   versionName) is now 0.5.0; prior releases are v0.1.0 (history).
@@ -101,6 +107,19 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-03 Achievement badge color: user found the teal achievement badges ugly in light mode.
+  First tried warm amber `#D97706` (`kBadge` = `_appIsDark ? kAccent : Color(0xFFD97706)`) —
+  user REJECTED it (gold doesn't fit the vibe). Second try: BLUE `#3B82F6`
+  (`kBadge` = `_appIsDark ? kAccent : Color(0xFF3B82F6)`) applied app-wide to the badge family:
+  `_BadgeChip` (bg tint alpha 0.1, border alpha 0.25, icon, label), both thank-you-note lists
+  (empty-state icon alpha 0.6, card bg alpha 0.08, card border alpha 0.2, "From X" text), and the
+  "Describe your own act" tile (border alpha 0.5, icon tile bg alpha 0.12, icon) in lib/main.dart.
+  Dark mode keeps teal (kAccent) — unchanged. Analyze clean, release APK rebuilt (55.6 MB) +
+  `adb install -r` Success + launched. Version stays 0.5.0. NOT committed/pushed.
+  NOTE: the full-app UI redesign (v0.6.0, Inter font, flat sage palette) was REVERTED on user
+  request 2026-08-03 — `git checkout -- lib/main.dart pubspec.yaml`, fonts removed, apks\v0.6.0
+  deleted, AGENTS.md restored; phone reinstalled from apks\v0.5.0\kindred.apk. The v0.6.0 work
+  log entry was removed along with it.
 - 2026-08-02 SESSION SAVED (Jonah restarting VS Code). Everything committed + pushed; working
   tree clean at commit 5bca369. Current release: v0.5.0 (see Current status above). All session
   work (chat Done button, chat presence, dialog button layout, Messages-tab merge fix, map-claim

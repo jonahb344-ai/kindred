@@ -107,6 +107,7 @@ Color get kCard => _appIsDark ? const Color(0xFF141E30) : const Color(0xFFFFFFFF
 Color get kCardLight => _appIsDark ? const Color(0xFF1E2B42) : const Color(0xFFEAF0F4);
 Color get kAccent => _appIsDark ? const Color(0xFF2DD4BF) : const Color(0xFF0D9488);
 Color get kAccentDark => _appIsDark ? const Color(0xFF14B8A6) : const Color(0xFF0F766E);
+Color get kBadge => _appIsDark ? kAccent : const Color(0xFF3B82F6);
 Color get kTextPrimary => _appIsDark ? const Color(0xFFE7EDF4) : const Color(0xFF0F172A);
 Color get kTextSecondary => _appIsDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
 Color get kDivider => _appIsDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0);
@@ -1763,12 +1764,12 @@ class HomeScreen extends StatelessWidget {
                   child: Container(
                     width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
-                      border: Border.all(color: kAccent.withValues(alpha: 0.5)),
+                      border: Border.all(color: kBadge.withValues(alpha: 0.5)),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(children: [
-                      Container(width: 38, height: 38, decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
-                          child: Icon(Icons.edit_note_rounded, color: kAccent, size: 20)),
+                      Container(width: 38, height: 38, decoration: BoxDecoration(color: kBadge.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                          child: Icon(Icons.edit_note_rounded, color: kBadge, size: 20)),
                       const SizedBox(width: 12),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text('Describe your own act', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: kTextPrimary)),
@@ -3407,7 +3408,7 @@ class ProfileScreen extends StatelessWidget {
                   if (!noteSnap.hasData || noteSnap.data!.docs.isEmpty) {
                     return Container(width: double.infinity, padding: EdgeInsets.all(20), decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
                         child: Column(children: [
-                          Icon(Icons.favorite_outline_rounded, color: kAccent.withValues(alpha: 0.6), size: 32),
+                          Icon(Icons.favorite_outline_rounded, color: kBadge.withValues(alpha: 0.6), size: 32),
                           const SizedBox(height: 10),
                           Text('No thank you notes yet. Help someone!', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 13)),
                         ]));
@@ -3415,9 +3416,9 @@ class ProfileScreen extends StatelessWidget {
                   return Column(children: noteSnap.data!.docs.map((doc) {
                     final n = doc.data() as Map<String, dynamic>;
                     return Container(margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: kAccent.withValues(alpha: 0.2))),
+                        decoration: BoxDecoration(color: kBadge.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: kBadge.withValues(alpha: 0.2))),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('From ${n['fromName'] ?? 'Someone'}', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: kAccent)),
+                          Text('From ${n['fromName'] ?? 'Someone'}', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: kBadge)),
                           const SizedBox(height: 4),
                           Text(n['note'] ?? '', style: TextStyle(fontSize: 13, color: kTextPrimary, height: 1.5)),
                           Text('For: ${n['requestCategory'] ?? ''}', style: TextStyle(fontSize: 11, color: kTextSecondary)),
@@ -3661,7 +3662,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   if (!noteSnap.hasData || noteSnap.data!.docs.isEmpty) {
                     return Container(width: double.infinity, padding: EdgeInsets.all(20), decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
                         child: Column(children: [
-                          Icon(Icons.favorite_outline_rounded, color: kAccent.withValues(alpha: 0.6), size: 32),
+                          Icon(Icons.favorite_outline_rounded, color: kBadge.withValues(alpha: 0.6), size: 32),
                           const SizedBox(height: 10),
                           Text('No thank you notes yet.', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 13)),
                         ]));
@@ -3669,9 +3670,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   return Column(children: noteSnap.data!.docs.map((doc) {
                     final n = doc.data() as Map<String, dynamic>;
                     return Container(margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: kAccent.withValues(alpha: 0.2))),
+                        decoration: BoxDecoration(color: kBadge.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: kBadge.withValues(alpha: 0.2))),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('From ${n['fromName'] ?? 'Someone'}', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: kAccent)),
+                          Text('From ${n['fromName'] ?? 'Someone'}', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: kBadge)),
                           const SizedBox(height: 4),
                           Text(n['note'] ?? '', style: TextStyle(fontSize: 13, color: kTextPrimary, height: 1.5)),
                           Text('For: ${n['requestCategory'] ?? ''}', style: TextStyle(fontSize: 11, color: kTextSecondary)),
@@ -4598,11 +4599,11 @@ class _BadgeChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: kAccent.withValues(alpha: 0.25))),
+      decoration: BoxDecoration(color: kBadge.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: kBadge.withValues(alpha: 0.25))),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(_badgeIcon(badge), size: 13, color: kAccent),
+        Icon(_badgeIcon(badge), size: 13, color: kBadge),
         const SizedBox(width: 6),
-        Text(_label(badge), style: TextStyle(color: kAccent, fontSize: 12, fontWeight: FontWeight.w700)),
+        Text(_label(badge), style: TextStyle(color: kBadge, fontSize: 12, fontWeight: FontWeight.w700)),
       ]),
     );
   }
