@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "193898349536",
+    "firebase_url": "https://kindred-app-2fe7a-default-rtdb.firebaseio.com",
     "project_id": "kindred-app-2fe7a",
     "storage_bucket": "kindred-app-2fe7a.firebasestorage.app"
   },
@@ -22,6 +23,22 @@
           }
         },
         {
+          "client_id": "193898349536-j8plep5so3ua7nmu6mrc3g9j233hr2jh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.kindred_app",
+            "certificate_hash": "bc591c0f0345f946c68cfe1215de08ca54dee7cb"
+          }
+        },
+        {
+          "client_id": "193898349536-n58q0lffii7ojo4epuk7q5p5kkakh96p.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.kindred_app",
+            "certificate_hash": "e9cd30f8bd98dc1f110ca554f112e48fc57fd7ba"
+          }
+        },
+        {
           "client_id": "193898349536-tdt9sttf9mnv9dk8uenk113icb67aeq0.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -29,6 +46,57 @@
       "api_key": [
         {
           "current_key": "AIzaSyCFu2NQ7YQd0qhN6k9qj3EytySo_revC10"
+        },
+        {
+          "current_key": "AIzaSyCYL8kqLN47lfxxVj6ctgCTfX6uSv0GoFA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "193898349536-tdt9sttf9mnv9dk8uenk113icb67aeq0.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:193898349536:android:c0fb9b606ece5d7134e185",
+        "android_client_info": {
+          "package_name": "com.kindred.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "193898349536-csspn2pe381jbtlerp8oa58j5q8iq6lr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kindred.app",
+            "certificate_hash": "bc591c0f0345f946c68cfe1215de08ca54dee7cb"
+          }
+        },
+        {
+          "client_id": "193898349536-o2ocvigaslpqqsv80n6e09p2pob0r6o6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kindred.app",
+            "certificate_hash": "e9cd30f8bd98dc1f110ca554f112e48fc57fd7ba"
+          }
+        },
+        {
+          "client_id": "193898349536-tdt9sttf9mnv9dk8uenk113icb67aeq0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCFu2NQ7YQd0qhN6k9qj3EytySo_revC10"
+        },
+        {
+          "current_key": "AIzaSyCYL8kqLN47lfxxVj6ctgCTfX6uSv0GoFA"
         }
       ],
       "services": {

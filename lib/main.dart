@@ -88,7 +88,6 @@ const int legendThreshold = 500;
 const int pointsPerAct = 5;
 
 // Bundled real photography
-const String kImgNeighborhood = 'assets/neighborhood.jpg';
 const String kImgVolunteers = 'assets/volunteers.jpg';
 const String kImgCleanup = 'assets/cleanup.jpg';
 
@@ -649,6 +648,7 @@ class _LoginScreenState extends State<LoginScreen> {
         'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
         'setupDone': false, 'tutorialDone': false, 'blockedUsers': [],
         'notifMessages': true, 'notifRequests': true, 'language': 'English',
+        'nearbyRadiusMi': 1.0,
         'joinedAt': FieldValue.serverTimestamp(),
       });
     }
@@ -754,7 +754,6 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: kBackground,
       resizeToAvoidBottomInset: true,
       body: Stack(children: [
-        Positioned.fill(child: Image.asset(kImgNeighborhood, fit: BoxFit.cover)),
         Positioned.fill(child: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -765,22 +764,15 @@ class _LoginScreenState extends State<LoginScreen> {
         )),
         SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 48, 28, 28),
+            padding: const EdgeInsets.fromLTRB(28, 72, 28, 28),
             child: Column(
               children: [
                 _StaggerIn(child: Column(children: [
-                  Container(
-                    width: 92, height: 92,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 24, offset: const Offset(0, 10))],
-                    ),
-                    child: const Icon(Icons.volunteer_activism_rounded, color: Colors.white, size: 48),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: Image.asset('assets/logo_banner.png', width: 260, fit: BoxFit.contain),
                   ),
                   const SizedBox(height: 26),
-                  const Text('Kindred', style: TextStyle(fontSize: 44, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -1.5)),
-                  const SizedBox(height: 8),
                   const Text('Neighbors helping neighbors.', style: TextStyle(fontSize: 15, color: Colors.white70)),
                 ])),
                 const SizedBox(height: 36),
@@ -1617,7 +1609,7 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: kBackground,
         elevation: 0,
         scrolledUnderElevation: 0,
-        title: Text('Kindred', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800, fontSize: 24, letterSpacing: -0.5)),
+        title: Image.asset('assets/logo_banner.png', width: 150, fit: BoxFit.contain),
         centerTitle: true,
         leading: IconButton(icon: Icon(Icons.logout_rounded, color: kTextSecondary), onPressed: _signOut),
         actions: [
@@ -2911,6 +2903,15 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
 
 // ─── NEARBY MAP (CartoDB) ───────────────────────────────────────────────────
 
+double _distanceMiles(double lat1, double lon1, double lat2, double lon2) {
+  const double earthRadiusMi = 3958.8;
+  final double dLat = (lat2 - lat1) * math.pi / 180;
+  final double dLon = (lon2 - lon1) * math.pi / 180;
+  final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+      math.cos(lat1 * math.pi / 180) * math.cos(lat2 * math.pi / 180) * math.sin(dLon / 2) * math.sin(dLon / 2);
+  return 2 * earthRadiusMi * math.asin(math.sqrt(a));
+}
+
 class _NearbyMap extends StatefulWidget {
   const _NearbyMap({this.expanded = false, this.onExpand});
   final bool expanded;
@@ -2924,9 +2925,25 @@ class _NearbyMapState extends State<_NearbyMap> {
   LatLng _center = const LatLng(35.1495, -90.0490);
   bool _locationLoaded = false;
   bool _satellite = false;
+  double _radiusMi = 1.0;
 
   @override
-  void initState() { super.initState(); _loadLocation(); }
+  void initState() { super.initState(); _loadSettings(); _loadLocation(); }
+
+  Future<void> _loadSettings() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final data = doc.data();
+      if (data != null) {
+        final radius = data['nearbyRadiusMi'];
+        if (radius is num && radius > 0) {
+          setState(() => _radiusMi = radius.toDouble());
+        }
+      }
+    } catch (_) {}
+  }
 
   Future<void> _loadLocation() async {
     final pos = await _getCurrentPosition();
@@ -2957,12 +2974,17 @@ class _NearbyMapState extends State<_NearbyMap> {
       stream: FirebaseFirestore.instance.collection('requests').where('status', isEqualTo: 'open').snapshots(),
       builder: (context, snap) {
         final markers = <Marker>[];
+        var nearbyCount = 0;
         if (snap.hasData) {
           for (int i = 0; i < snap.data!.docs.length; i++) {
             final doc = snap.data!.docs[i];
             final data = doc.data() as Map<String, dynamic>;
             final lat = (data['lat'] as double?) ?? (_center.latitude + (i * 0.002));
             final lng = (data['lng'] as double?) ?? (_center.longitude + (i * 0.002));
+            if (_locationLoaded && _distanceMiles(_center.latitude, _center.longitude, lat, lng) > _radiusMi) {
+              continue;
+            }
+            nearbyCount++;
             markers.add(Marker(
               point: LatLng(lat, lng), width: 48, height: 62, alignment: Alignment.bottomCenter,
               child: GestureDetector(
@@ -3031,9 +3053,9 @@ class _NearbyMapState extends State<_NearbyMap> {
                   child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     const _PulsingDot(color: Color(0xFF34D399), size: 8),
                     const SizedBox(width: 8),
-                    Text(snap.hasData ? '${snap.data!.docs.length} open request${snap.data!.docs.length == 1 ? '' : 's'} nearby' : 'Loading...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: kTextPrimary)),
+                    Text(snap.hasData ? '$nearbyCount open request${nearbyCount == 1 ? '' : 's'} nearby' : 'Loading...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: kTextPrimary)),
                     const SizedBox(width: 6),
-                    Text('· Tap a pin to help', style: TextStyle(fontSize: 12, color: kTextSecondary)),
+                    Text('· within ${_radiusMi.toStringAsFixed(_radiusMi == _radiusMi.roundToDouble() ? 0 : 1)} mi', style: TextStyle(fontSize: 12, color: kTextSecondary)),
                   ]),
                 ),
               )),
@@ -3737,6 +3759,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifRequests = true;
   ThemeMode _themeMode = ThemeMode.system;
   String _language = 'English';
+  double _nearbyRadiusMi = 1.0;
   String _appVersion = 'bv0.5.0';
 
   @override
@@ -3761,6 +3784,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _notifMessages = data['notifMessages'] ?? true;
       _notifRequests = data['notifRequests'] ?? true;
       _language = data['language'] ?? 'English';
+      final radius = data['nearbyRadiusMi'];
+      if (radius is num && radius > 0) _nearbyRadiusMi = radius.toDouble();
       final mode = data['themeMode'] as String?;
       if (mode != null) {
         final parsed = ThemeMode.values.where((m) => m.name == mode);
@@ -3779,6 +3804,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'notifMessages': _notifMessages,
       'notifRequests': _notifRequests,
       'language': _language,
+      'nearbyRadiusMi': _nearbyRadiusMi,
     });
   }
 
@@ -3860,6 +3886,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.volunteer_activism_outlined,
               title: 'Request notifications',
               trailing: Switch(value: _notifRequests, onChanged: (v) { setState(() => _notifRequests = v); _saveSettings(); }, activeThumbColor: kAccent),
+            ),
+          ]),
+
+          _SettingsSection(title: 'Nearby', children: [
+            _SettingsTile(
+              icon: Icons.radar_rounded,
+              title: 'Nearby search radius',
+              subtitle: 'Only requests within this distance count as nearby.',
+              trailing: Text('${_nearbyRadiusMi.toStringAsFixed(_nearbyRadiusMi == _nearbyRadiusMi.roundToDouble() ? 0 : 1)} mi', style: TextStyle(color: kAccent, fontWeight: FontWeight.w700, fontSize: 14)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: Slider(
+                value: _nearbyRadiusMi.clamp(0.25, 25.0),
+                min: 0.25,
+                max: 25.0,
+                divisions: 99,
+                activeColor: kAccent,
+                inactiveColor: kDivider,
+                label: '${_nearbyRadiusMi.toStringAsFixed(_nearbyRadiusMi == _nearbyRadiusMi.roundToDouble() ? 0 : 1)} mi',
+                onChanged: (v) { setState(() => _nearbyRadiusMi = v); _saveSettings(); },
+              ),
             ),
           ]),
 
@@ -3996,7 +4044,8 @@ class _SettingsTile extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final Color? titleColor;
-  const _SettingsTile({required this.icon, required this.title, this.trailing, this.onTap, this.titleColor});
+  final String? subtitle;
+  const _SettingsTile({required this.icon, required this.title, this.trailing, this.onTap, this.titleColor, this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -4007,6 +4056,7 @@ class _SettingsTile extends StatelessWidget {
         leading: Container(width: 36, height: 36, decoration: BoxDecoration(color: (titleColor == Colors.red ? Colors.red : kAccent).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
             child: Icon(icon, color: titleColor == Colors.red ? Colors.red : kAccent, size: 19)),
         title: Text(title, style: TextStyle(color: titleColor ?? kTextPrimary, fontSize: 15, fontWeight: FontWeight.w500)),
+        subtitle: subtitle == null ? null : Text(subtitle!, style: TextStyle(color: kTextSecondary, fontSize: 12)),
         trailing: trailing ?? (onTap != null ? Icon(Icons.chevron_right_rounded, color: kTextSecondary, size: 20) : null),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       ),

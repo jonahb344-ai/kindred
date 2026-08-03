@@ -17,6 +17,42 @@ public); secret values live only in the files/locations referenced below.
 - Keep the work log (below) as an append-only history of significant changes with dates.
 
 ## Current status
+- PLAY STORE PREP IN PROGRESS (v0.5.0): package id renamed `com.example.kindred_app` ->
+  `com.kindred.app` (gradle namespace + applicationId, MainActivity.kt moved to
+  `com/kindred/app/`, google-services.json package names updated). App label is now "Kindred"
+  (was `kindred_app`). Custom launcher icon generated from user logo
+  (`assets/icon/app_icon.png` — now the newer 1254x1254 dark-navy version, adaptive bg
+  `#081A31`) via flutter_launcher_icons (adaptive + legacy mipmaps, monochrome). In-app logo:
+  Login screen (260px wide banner ONLY — the duplicate "Kindred" text was removed on user
+  request) and Home AppBar (150px banner replacing the "Kindred" text) using
+  `assets/logo_banner.png` (now the newer 1991x789 navy-background version). Privacy policy LIVE at
+  https://kindred.jonahb344.workers.dev/privacy (new GET route in worker.js, deployed
+  version 86779277). Release APK rebuilt (55.6 MB) + installed on phone as `com.kindred.app`
+  (running, no crash). **FIREBASE STEP DONE 2026-08-03**: user added Android app
+  `com.kindred.app` in Firebase Console with release SHA-1
+  E9:CD:30:F8:BD:98:DC:1F:11:0C:A5:54:F1:12:E4:8F:C5:7F:D7:BA + debug SHA-1
+  BC:59:1C:0F:03:45:F9:46:C6:8C:FE:12:15:DE:08:CA:54:DE:E7:CB; downloaded the new
+  google-services.json (3629 bytes, `com.kindred.app` entry with BOTH fingerprints +
+  OAuth clients) and replaced android/app/google-services.json. Google Sign-In now WORKS
+  on the release build. NOTE: the debug SHA-1 in AGENTS.md was previously recorded as
+  D6:49:C4:41... but this machine's actual debug.keystore is BC:59:1C:0F... — the debug
+  keystore must have been regenerated; BC:59 is the current one.
+- **Logo transparency**: `assets/logo_banner.png` background is now TRANSPARENT (removed the
+  navy `#05152B` box) so it blends with any page background — login gradient, Home AppBar,
+  both themes. Backup at `%TEMP%\opencode\logo_banner_backup.png`. Later same day the sage
+  wordmark was DARKENED (HSV value scaled ~0.45 → now dark forest green ~rgb(54,73,56)) for
+  better visibility on the teal login gradient. Also REMOVED the neighborhood photo
+  (`assets/neighborhood.jpg` + `kImgNeighborhood` const) from the login background — it's now
+  a pure gradient. Release APK rebuilt (57.3 MB) + installed on phone (running). Later the
+  same day: forest green (0.45x V) was too dark, so wordmark re-processed at 0.62x V → mid
+  green ~rgb(74,101,77), and the login top padding was bumped 48→72 so the logo sits lower.
+  APK rebuilt (57.4 MB) + installed (running).
+- **Nearby radius setting (v0.5.0)**: new `nearbyRadiusMi` user setting (default 1.0 mile),
+  stored in users/{uid}, editable in Settings → "Nearby" section (slider 0.25–25 mi, saved on
+  every change). The map now filters markers + the "X open requests nearby" count to requests
+  within the radius of the user's location (only when location is loaded; `_distanceMiles`
+  haversine helper). Count chip also shows "· within X mi". Release APK rebuilt (57.5 MB) +
+  installed on phone as `com.kindred.app` (running). Version still 0.5.0. NOT committed.
 - Badges/thank-you notes/"Describe your own act" now use theme-aware `kBadge` token: BLUE
   `#3B82F6` in LIGHT mode, dark mode UNCHANGED (stays teal `#2DD4BF`). Switched from gold
   `#D97706` on user request (gold didn't fit the vibe). Applied to `_BadgeChip` (bg tint/border/
@@ -57,7 +93,9 @@ public); secret values live only in the files/locations referenced below.
 - Both are gitignored — **back them up; losing them makes future app updates impossible.**
 - Release cert SHA-1: `E9:CD:30:F8:BD:98:DC:1F:11:0C:A5:54:F1:12:E4:8F:C5:7F:D7:BA`
   (registered in Firebase Console for Google Sign-In in release builds).
-- Debug SHA-1 was already registered (debug sign-in works).
+- Debug SHA-1 was already registered (debug sign-in works). Current debug keystore SHA-1 is
+  `BC:59:1C:0F:03:45:F9:46:C6:8C:FE:12:15:DE:08:CA:54:DE:E7:CB` (the old `D6:49:C4...`
+  fingerprint is stale — the debug keystore was regenerated on this machine).
 - `android/app/src/main/AndroidManifest.xml` now has INTERNET, POST_NOTIFICATIONS,
   ACCESS_FINE/COARSE_LOCATION. The release APK previously had NO network permission (only the
   debug manifest had INTERNET) — that was fixed and verified via `aapt dump permissions`.
@@ -107,6 +145,69 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-03 Logo second pass: forest green (0.45x V) was too dark / hard to see on the teal
+  login gradient, so `assets/logo_banner.png` was re-processed from the original backup at
+  0.62x V → mid green ~rgb(74,101,77) (transparency re-applied in the same pass). Login top
+  padding bumped 48→72 so the logo sits lower on the screen. Release APK rebuilt (57.4 MB) +
+  installed on phone (running). Analyze clean. NOT committed/pushed.
+- 2026-08-03 Removed the neighborhood photo from the login screen (deleted the
+  `Positioned.fill(Image.asset(kImgNeighborhood...))` layer + the unused `kImgNeighborhood`
+  const in lib/main.dart) — login background is now the pure teal→navy gradient. And darkened
+  the logo wordmark: `assets/logo_banner.png` processed with Pillow (convert RGB→HSV, scale V
+  ~0.45) → the sage wordmark is now dark forest green ~rgb(54,73,56), transparent bg kept, so
+  it reads better against the teal login gradient. Release APK rebuilt (57.3 MB) + installed
+  on phone (running). Analyze clean. NOT committed/pushed.
+- 2026-08-03 FIREBASE CONSOLE STEP COMPLETED: user added Android app `com.kindred.app` to
+  Firebase (project kindred-app-2fe7a) with release SHA-1 E9:CD:30... + debug SHA-1
+  BC:59:1C:0F... (debug keystore on this machine was regenerated; old D6:49:C4... no longer
+  valid). New google-services.json downloaded (3629 bytes; `com.kindred.app` entry has BOTH
+  fingerprints + OAuth clients + same restricted API key AIzaSyCFu2NQ7YQd0qhN6k9qj3EytySo_revC10)
+  and replaced android/app/google-services.json. Rebuilt release APK + installed on phone.
+  First sign-in attempt FAILED with "blocked" — logcat showed Firebase-Installations 403
+  Forbidden + FIS_AUTH_ERROR: the shared API key was still restricted in Google Cloud Console
+  to ONLY the old package. User added `com.kindred.app` (+ release/debug SHA-1s) to the API
+  key's Android-app restriction in Google Cloud Console → Google Sign-In now WORKS on the
+  release build. FCM should also work now (same key fix). No rebuild was needed after the key
+  restriction change.
+- 2026-08-03 Logo transparency: user asked to make the logo background blend with the page
+  backgrounds. `assets/logo_banner.png` (1991x789 navy `#05152B` bg + sage wordmark) was
+  processed with Pillow (Python) — navy pixels made fully transparent (distance < 30 from
+  (6,22,44) → alpha 0; 30–60 → soft edge), 1,404,580 px transparent, wordmark kept opaque.
+  Backup: `%TEMP%\opencode\logo_banner_backup.png`. Now blends with login gradient, Home
+  AppBar, both themes. Also copied to `C:\Users\jcboy\Desktop\New folder\app banner.png`
+  is the original (untransformed).
+- 2026-08-03 Nearby radius setting added (v0.5.0): new `nearbyRadiusMi` user setting (default
+  1.0 mi) in users/{uid} (default set in `_ensureUserDoc`, load/save in SettingsScreen). New
+  Settings → "Nearby" section with a 0.25–25 mi Slider (saved on every change) + a subtitle
+  explaining it. Map (`_NearbyMap`) now: loads `nearbyRadiusMi`, new top-level `_distanceMiles`
+  haversine helper, and only adds markers / counts "X open requests nearby" for requests within
+  `_radiusMi` of the user's location (filter active only when `_locationLoaded`). Count chip
+  now shows "· within X mi" instead of "· Tap a pin to help". Release APK rebuilt (57.5 MB) +
+  installed on phone (running). Analyze: 18 info lints, no errors/warnings (baseline). NOT
+  committed/pushed.
+- 2026-08-03 PLAY STORE PREP started (v0.5.0, NOT committed yet): package renamed to
+  `com.kindred.app` (gradle namespace + applicationId; MainActivity.kt moved to
+  `android/app/src/main/kotlin/com/kindred/app/`; old `com/example` tree deleted;
+  google-services.json package names updated in-place). App label "kindred_app" -> "Kindred" in
+  main AndroidManifest. Launcher icon generated from user's logo (454x381, sage bg) with
+  `flutter_  launcher_icons` v0.14.4 (added as dev dep + pubspec config: adaptive bg `#63918B`,
+  foreground + monochrome from `assets/icon/app_icon.png`) — generated adaptive mipmaps +
+  drawable-*dpi foreground/monochrome + `values/colors.xml`. In-app logo: Login screen icon tile
+  replaced with 260px `assets/logo_banner.png` banner; Home AppBar "Kindred" text replaced with
+  150px banner. Privacy policy page added to worker.js (`GET /privacy`, on-brand HTML) and
+  deployed via wrangler (version 86779277) — verified live. Release APK rebuilt (55.6 MB,
+  package `com.kindred.app` versionName 0.5.0 verified via aapt) + installed on phone
+  (adb -r Success, running, no crash; old `com.example.kindred_app` still installed alongside).
+  Analyze clean. SAME SESSION, later: user replaced both pics in Desktop/New folder with newer
+  dark-navy versions — `app icon.png` (1254x1254, navy edges `#081A31`) and `app banner.png`
+  (1991x789, navy bg). Copied over `assets/icon/app_icon.png` + `assets/logo_banner.png`;
+  flutter_launcher_icons adaptive bg updated to `#081A31` and regenerated. Login screen now
+  shows ONLY the banner (removed the duplicate `Text('Kindred')` on user request — the banner
+  carries the wordmark; tagline kept). APK rebuilt (57.0 MB) + installed on phone (running,
+  no crash). NOTE: google-services.json is an INTERIM edit (package names swapped only) —
+  user must add a new Firebase Android app `com.kindred.app`, register release+debug SHA-1s
+  (E9:CD:30... and D6:49:C4...), download + replace google-services.json, else Google Sign-In
+  and FCM fail (API key restricted to old package).
 - 2026-08-03 Achievement badge color: user found the teal achievement badges ugly in light mode.
   First tried warm amber `#D97706` (`kBadge` = `_appIsDark ? kAccent : Color(0xFFD97706)`) —
   user REJECTED it (gold doesn't fit the vibe). Second try: BLUE `#3B82F6`

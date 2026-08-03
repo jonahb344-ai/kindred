@@ -1,4 +1,4 @@
-package com.example.kindred_app
+package com.kindred.app
 
 import io.flutter.embedding.android.FlutterActivity
 

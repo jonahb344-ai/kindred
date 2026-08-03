@@ -10,6 +10,7 @@
 //                         (requires a Firebase Auth ID token)
 //   GET  /verified     -> Public, friendly "email verified" page. Used as the continueUrl
 //                         in the Firebase verification email link.
+//   GET  /privacy      -> Public privacy policy page (used for the Google Play listing).
 //
 // Setup:
 //   1. Free Cloudflare account (no credit card).
@@ -28,6 +29,9 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/verified') {
       return verifiedPage();
+    }
+    if (request.method === 'GET' && url.pathname === '/privacy') {
+      return privacyPage();
     }
     if (request.method === 'POST' && url.pathname === '/verify') {
       return handleVerify(request, env);
@@ -89,6 +93,116 @@ const VERIFIED_PAGE = `<!DOCTYPE html>
 
 function verifiedPage() {
   return new Response(VERIFIED_PAGE, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+    },
+  });
+}
+
+// ─── /privacy (public page) ───────────────────────────────────────────────────
+
+const PRIVACY_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Kindred</title>
+<style>
+  body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f5f8fa;color:#0f172a;line-height:1.7;}
+  .wrap{max-width:720px;margin:0 auto;padding:48px 24px 80px;}
+  h1{font-size:30px;margin:0 0 8px;}
+  .updated{color:#64748b;font-size:13px;margin-bottom:32px;}
+  h2{font-size:19px;margin:32px 0 8px;color:#0d9488;}
+  p,li{font-size:15px;color:#334155;}
+  ul{padding-left:22px;}
+  a{color:#0d9488;}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px 24px;margin-top:16px;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Privacy Policy</h1>
+    <div class="updated">Last updated: August 3, 2026</div>
+
+    <div class="card">
+      <p>Kindred ("we", "our") is a neighborhood kindness app that lets neighbors post and
+      claim small favors, chat, earn points, and celebrate acts of kindness. This policy explains
+      what information we collect, why we collect it, and how we keep it safe. We keep things
+      simple: <b>we never sell your data</b>.</p>
+    </div>
+
+    <h2>1. Information we collect</h2>
+    <ul>
+      <li><b>Account info</b>: your name, email address, and profile photo when you sign in with
+      Google or email/password.</li>
+      <li><b>Profile info you add</b>: your username, a short bio, and optional phone number.</li>
+      <li><b>Location</b>: with your permission, your approximate location so we can show nearby
+      requests and notify neighbors within ~8 km of a new request. You can turn this off anytime
+      in your device settings or the app.</li>
+      <li><b>Your activity</b>: kindness requests you post, chats you have with neighbors,
+      acts you log, points and badges, and thank-you notes.</li>
+      <li><b>Device info</b>: a push-notification token so we can alert you about new requests
+      and messages.</li>
+      <li><b>Content you submit for verification</b>: the description (and optional photo) of an
+      act, which is checked by an AI to confirm it is genuine kindness. Your photo is used only
+      for that check and is not stored.</li>
+    </ul>
+
+    <h2>2. How we use your information</h2>
+    <ul>
+      <li>To run the app: show requests, connect you with helpers, send messages and notifications.</li>
+      <li>To verify kindness acts and reward points and badges.</li>
+      <li>To keep the community safe: block users, review reported content, and prevent abuse.</li>
+      <li>To improve the app and provide support.</li>
+    </ul>
+
+    <h2>3. How we share information</h2>
+    <ul>
+      <li>With your neighbors: your name, photo, username, and posted requests are visible to
+      other app users so people can help each other.</li>
+      <li>With service providers that run the app (Google Firebase for accounts, storage, and
+      push notifications; Cloudflare for server-side helpers; Anthropic for AI kindness
+      verification). They only access data as needed to provide these services.</li>
+      <li>We never sell or rent your personal information.</li>
+      <li>We may disclose information if required by law or to protect the rights and safety of
+      users and the public.</li>
+    </ul>
+
+    <h2>4. Data you share with others</h2>
+    <p>Chats, requests, and acts you post are shared with the people you interact with. Please
+    only share what you're comfortable with.</p>
+
+    <h2>5. Your choices and rights</h2>
+    <ul>
+      <li>Edit or remove profile info, delete your requests and chats at any time.</li>
+      <li>Turn off location or push notifications in your device settings.</li>
+      <li>Delete your account and data through the app (Settings &rarr; Delete Account).</li>
+      <li>Request a copy of your data or ask questions by emailing us (below).</li>
+    </ul>
+
+    <h2>6. Data retention and security</h2>
+    <p>We keep your data only as long as needed to run the app, and use industry-standard
+    security (encryption in transit and at rest, restricted access). When you delete your
+    account, your profile data is removed.</p>
+
+    <h2>7. Children's privacy</h2>
+    <p>Kindred is intended for users 13 and older. We don't knowingly collect personal
+    information from children under 13. If you believe a child has provided us personal
+    information, contact us and we'll delete it.</p>
+
+    <h2>8. Changes to this policy</h2>
+    <p>If we make significant changes, we'll update this page and note the new date above.</p>
+
+    <h2>9. Contact us</h2>
+    <p>Questions about this policy? Email:
+    <a href="mailto:jonahb344+kindred@gmail.com">jonahb344+kindred@gmail.com</a></p>
+  </div>
+</body>
+</html>`;
+
+function privacyPage() {
+  return new Response(PRIVACY_PAGE, {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
