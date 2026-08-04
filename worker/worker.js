@@ -27,6 +27,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (request.method === 'OPTIONS') {
+      return corsPreflight();
+    }
+
     if (request.method === 'GET' && url.pathname === '/verified') {
       return verifiedPage();
     }
@@ -57,6 +61,18 @@ function json(obj, status) {
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
+function corsPreflight() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
     },
   });
 }
