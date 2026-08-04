@@ -55,3 +55,6 @@ android/key.properties
 
 # Cloudflare Wrangler local auth/config
 /.wrangler/
+
+# AI tooling / agent memory (kept local, not published)
+/AGENTS.md
