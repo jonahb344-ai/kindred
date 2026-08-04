@@ -22,6 +22,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -37,7 +39,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 
 final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
@@ -98,9 +99,15 @@ Future<void> _initNotifications() async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await _initNotifications();
+  if (kIsWeb) {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  } else {
+    await Firebase.initializeApp();
+  }
+  if (!kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    await _initNotifications();
+  }
   runApp(const KindredApp());
 }
 
@@ -680,7 +687,7 @@ class _LoginScreenState extends State<LoginScreen> {
         'joinedAt': FieldValue.serverTimestamp(),
       });
     }
-    final token = await FirebaseMessaging.instance.getToken();
+    final token = kIsWeb ? null : await FirebaseMessaging.instance.getToken();
     await FirebaseFirestore.instance
         .collection('users').doc(user.uid).collection('private').doc('data')
         .set({'email': user.email, 'phone': '', 'fcmToken': token}, SetOptions(merge: true));
@@ -690,12 +697,18 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
-      final googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) { setState(() => _isLoading = false); return; }
-      final googleAuth = await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(accessToken: googleAuth.accessToken, idToken: googleAuth.idToken);
-      final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-      final user = userCredential.user;
+      User? user;
+      if (kIsWeb) {
+        final userCredential = await FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
+        user = userCredential.user;
+      } else {
+        final googleUser = await GoogleSignIn().signIn();
+        if (googleUser == null) { setState(() => _isLoading = false); return; }
+        final googleAuth = await googleUser.authentication;
+        final credential = GoogleAuthProvider.credential(accessToken: googleAuth.accessToken, idToken: googleAuth.idToken);
+        final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+        user = userCredential.user;
+      }
       if (user != null) await _ensureUserDoc(user);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
@@ -1396,7 +1409,7 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   Future<void> _signOut() async {
-    await GoogleSignIn().signOut();
+    if (!kIsWeb) await GoogleSignIn().signOut();
     await FirebaseAuth.instance.signOut();
   }
 
@@ -1455,8 +1468,7 @@ class HomeScreen extends StatelessWidget {
     );
 
     try {
-      final file = File(picked.path);
-      final imageBytes = await file.readAsBytes();
+      final imageBytes = await picked.readAsBytes();
 
       final result = await _callVerifyAct(act, base64Encode(imageBytes));
 
@@ -3902,7 +3914,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await FirebaseFirestore.instance.collection('users').doc(uid).delete();
     }
     await FirebaseAuth.instance.currentUser?.delete();
-    await GoogleSignIn().signOut();
+    if (!kIsWeb) await GoogleSignIn().signOut();
   }
 
   @override
@@ -4031,8 +4043,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SettingsSection(title: 'Account', children: [
             _SettingsTile(
               icon: Icons.logout_rounded,
-              title: 'Sign Out',              onTap: () async {
-                await GoogleSignIn().signOut();
+              title: 'Sign Out',
+              onTap: () async {
+                if (!kIsWeb) await GoogleSignIn().signOut();
                 await FirebaseAuth.instance.signOut();
               },
             ),
@@ -4293,7 +4306,7 @@ class _DescribeActSheetState extends State<_DescribeActSheet> {
                 onTap: () async {
                   final picked = await widget.picker.pickImage(source: ImageSource.camera, imageQuality: 70);
                   if (picked == null) return;
-                  final bytes = await File(picked.path).readAsBytes();
+                  final bytes = await picked.readAsBytes();
                   if (mounted) setState(() => _imageBytes = bytes);
                 },
                 pressedScale: 0.97,
