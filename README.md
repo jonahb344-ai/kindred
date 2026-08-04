@@ -21,11 +21,11 @@ Download link: [kindred.apk](https://github.com/jonahb344-ai/kindred/releases/la
 
 > **Note:** Because the app isn't on the Play Store yet, Android may warn about installing from unknown sources. You'll need to allow "Install unknown apps" for your browser or file manager the first time.
 
-Download: Save the APK file directly to your phone using the link above.
-Allow Permissions: Open your phone Settings, go to Apps or Security, find Install unknown apps, and turn it on for your web browser or file manager.
-Open the File: Open your phone's Files or My Files app, go to the Downloads folder, and tap the APK file (it should be something like "kindred.apk").
-Install: Tap Install on the screen prompt and wait for the process to finish.
-Run: Open your app drawer (Usually by swiping up from the bottom of your home screen, search "Kindred" and click on it. 
+- **Download: Save the APK file directly to your phone using the link above.
+- **Allow Permissions: Open your phone Settings, go to Apps or Security, find Install unknown apps, and turn it on for your web browser or file manager.
+- **Open the File: Open your phone's Files or My Files app, go to the Downloads folder, and tap the APK file (it should be something like "kindred.apk").
+- **Install: Tap Install on the screen prompt and wait for the process to finish.
+- **Run: Open your app drawer (Usually by swiping up from the bottom of your home screen, search "Kindred" and click on it. 
 
 
 
