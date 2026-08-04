@@ -18,6 +18,11 @@
 //
 // GitHub: https://github.com/jonahb344-ai/kindred/tree/main
 // Contact: jonahb344@gmail.com
+//
+// Built by Jonah — 8th grader from Bartlett, TN.
+// Started summer 2026 as a neighborhood kindness project.
+// The idea: neighbors helping neighbors with small stuff
+// (groceries, yard work, rides, etc) — all free, no catch.
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -72,16 +77,17 @@ Future<String> _myPhotoUrl() async {
 }
 
 @pragma('vm:entry-point')
+// required for background FCM — the OS handles display, we just need this function to exist
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Notification-type messages are displayed by the OS automatically when the
-  // app is in the background, so no extra work is needed here.
 }
 
+// sets up local notifications + foreground FCM listener (android only)
 Future<void> _initNotifications() async {
   await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
   const settings = InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher'));
   await localNotifications.initialize(settings: settings);
   FirebaseMessaging.onMessage.listen((message) async {
+    // foreground messages need manual display via flutter_local_notifications
     await localNotifications.show(
       id: _localNotifId++,
       title: message.notification?.title ?? 'Kindred',
@@ -99,6 +105,7 @@ Future<void> _initNotifications() async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // web needs explicit options, android auto-detects from google-services.json
   if (kIsWeb) {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   } else {
@@ -113,27 +120,27 @@ void main() async {
 
 const String reportEmail = 'jonahb344+kindred@gmail.com';
 
-// Free Cloudflare Worker that holds the Anthropic key server-side.
-// Replace with your Worker's URL (e.g. https://kindred-verify.workers.dev).
+// Worker URL — runs on Cloudflare free tier, holds API keys server-side
 const String kServerBaseUrl = 'https://kindred.jonahb344.workers.dev';
 
+// level thresholds — tweak these to change progression speed
 const int helperThreshold = 50;
 const int championThreshold = 150;
 const int legendThreshold = 500;
 const int pointsPerAct = 5;
 
-// Bundled real photography
+// photos for the onboarding screens
 const String kImgVolunteers = 'assets/volunteers.jpg';
 const String kImgCleanup = 'assets/cleanup.jpg';
 
-// CartoDB vector tiles (thematic) + Esri satellite imagery
+// map tile sources — CartoDB for normal view, Esri for satellite
 const String kTilesLight =
     'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const String kTilesSatellite =
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const List<String> kTileSubdomains = ['a', 'b', 'c', 'd'];
 
-// Midnight blue + sage green palette (theme-aware)
+// theme colors — dark mode is the default, light mode added later
 bool _appIsDark = true;
 
 Color get kBackground => _appIsDark ? const Color(0xFF0B1220) : const Color(0xFFF5F8FA);
@@ -142,6 +149,7 @@ Color get kCardLight => _appIsDark ? const Color(0xFF1E2B42) : const Color(0xFFE
 Color get kAccent => _appIsDark ? const Color(0xFF2DD4BF) : const Color(0xFF0D9488);
 Color get kAccentDark => _appIsDark ? const Color(0xFF14B8A6) : const Color(0xFF0F766E);
 Color get kBadge => _appIsDark ? kAccent : const Color(0xFF3B82F6);
+// (kBadge is blue in light mode — gold clashed with the cards, tried it, didn't like it)
 Color get kTextPrimary => _appIsDark ? const Color(0xFFE7EDF4) : const Color(0xFF0F172A);
 Color get kTextSecondary => _appIsDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
 Color get kDivider => _appIsDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0);
@@ -167,6 +175,7 @@ BoxShadow get kSoftShadow => BoxShadow(
 );
 
 Color _categoryColor(String cat) {
+  // each category gets its own color for the chip/label
   switch (cat) {
     case 'Grocery Run': return const Color(0xFF16A34A);
     case 'Lawn Care': return const Color(0xFF0D9488);
@@ -179,6 +188,7 @@ Color _categoryColor(String cat) {
 }
 
 IconData _badgeIcon(String b) {
+  // matching badges to material icons — took a while to find ones that felt right
   switch (b) {
     case 'first_act': return Icons.eco;
     case '10_acts': return Icons.grade;
@@ -247,6 +257,7 @@ class _KindredAppState extends State<KindredApp> {
     _loadThemeFromUser();
   }
 
+  // pull saved theme preference from Firestore on startup
   Future<void> _loadThemeFromUser() async {
     try {
       await FirebaseAuth.instance.authStateChanges().firstWhere((u) => u != null);
@@ -327,6 +338,7 @@ Color get textPrimary => kTextPrimary;
 Color get textSecondary => kTextSecondary;
 
 void _haptic() {
+  // subtle tap feedback — works on mobile, no-op on web/desktop
   try {
     HapticFeedback.selectionClick();
   } catch (_) {}
@@ -339,6 +351,7 @@ void _hapticHeavy() {
 }
 
 Future<void> _showConfetti(BuildContext context) async {
+  // little celebration overlay after completing an act — people like confetti
   await Navigator.of(context).push(PageRouteBuilder<void>(
     opaque: false,
     barrierColor: Colors.transparent,
@@ -371,6 +384,7 @@ Color _levelColor(String level) {
 }
 
 double _levelProgress(int score) {
+  // returns 0.0-1.0 based on where the user is in their current level tier
   if (score >= legendThreshold) return 1.0;
   if (score >= championThreshold) return (score - championThreshold) / (legendThreshold - championThreshold);
   if (score >= helperThreshold) return (score - helperThreshold) / (championThreshold - helperThreshold);
@@ -385,6 +399,7 @@ String _levelNextMessage(int score) {
 }
 
 String _timeAgo(Timestamp? ts) {
+  // "3m ago", "2h ago", "5d ago" — simple relative time
   if (ts == null) return '';
   final diff = DateTime.now().difference(ts.toDate());
   if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
@@ -458,6 +473,7 @@ Future<void> _deleteChat(BuildContext context, String requestId, String otherNam
   }
 }
 
+// builds a plain-text export of a chat for sharing/reports
 Future<String?> _buildTranscript(String chatId) async {
   try {
     final snap = await FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').orderBy('createdAt').get();
@@ -475,6 +491,7 @@ Future<String?> _buildTranscript(String chatId) async {
   }
 }
 
+// sends report emails via formsubmit.co — free tier, no backend needed
 Future<bool> _sendReportEmail({required String subject, required Map<String, String> fields}) async {
   try {
     final response = await http.post(
@@ -611,6 +628,7 @@ bool get _isWeekend {
 int get _currentPoints => _isWeekend ? pointsPerAct * 2 : pointsPerAct;
 
 // ─── AUTH GATE ────────────────────────────────────────────────────────────────
+// decides what to show based on auth state — login, verify email, onboarding, or main app
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -673,6 +691,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _ensureUserDoc(User user) async {
+    // create user doc in Firestore if it doesn't exist yet (first sign-in)
     final doc = FirebaseFirestore.instance.collection('users').doc(user.uid);
     final snap = await doc.get();
     if (!snap.exists) {
@@ -698,6 +717,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     try {
       User? user;
+      // web uses popup (can't do native GoogleSignIn on browser), android uses the plugin
       if (kIsWeb) {
         final userCredential = await FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
         user = userCredential.user;
@@ -771,8 +791,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
   }
 
-  String _friendlyAuthError(Object error) {
-    if (error is FirebaseAuthException) {
+String _friendlyAuthError(Object error) {
+  // map Firebase error codes to plain-English messages
+  if (error is FirebaseAuthException) {
       switch (error.code) {
         case 'email-already-in-use': return 'That email is already registered. Try signing in instead.';
         case 'invalid-email': return 'That email address doesn\'t look right.';
@@ -1086,6 +1107,7 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
+  // first-run setup: username, bio, phone — only shown once per account
   final _usernameController = TextEditingController();
   final _bioController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -1341,6 +1363,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
 }
 
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
+// the main scaffold with bottom nav — Home, Help, Messages, Map, Profile
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -1404,6 +1427,7 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
+// feed of open requests — pulls from Firestore, filters blocked users
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -1448,6 +1472,7 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _logKindnessAct(BuildContext context, String act, String emoji) async {
+    // take a photo as evidence, then let the AI check it matches the description
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     final picker = ImagePicker();
@@ -1536,6 +1561,7 @@ class HomeScreen extends StatelessWidget {
     }
   }
 
+  // points awarded for a verified act + streak + level checks
   Future<void> _awardAct(String act, String category, String reason) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -1882,6 +1908,7 @@ class HomeScreen extends StatelessWidget {
 }
 
 // ─── HELP OTHERS ──────────────────────────────────────────────────────────────
+// shows requests you've claimed + the "describe your own act" feature
 
 class HelpOthersScreen extends StatefulWidget {
   const HelpOthersScreen({super.key});
@@ -2046,6 +2073,7 @@ class RequestCard extends StatelessWidget {
   Color _urgencyColor(String u) { switch (u) { case 'High': return Colors.red; case 'Medium': return Colors.orange; default: return kAccent; } }
 
   Future<void> _claimRequest(BuildContext context) async {
+    // volunteer taps "I'll help" — sets the request to claimed and opens the chat
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     final confirmed = await showDialog<bool>(context: context, builder: (_) => _KindredDialog(
@@ -2273,6 +2301,8 @@ Future<Map<String, String>> _authHeaders() async {
   }
 }
 
+// sends the act description (and optional photo) to the worker for AI verification
+// the worker calls Claude on the server side so the API key stays safe
 Future<Map<String, dynamic>> _callVerifyAct(String description, String? imageBase64) async {
   final response = await http.post(
     Uri.parse('$kServerBaseUrl/verify'),
@@ -2292,6 +2322,7 @@ Future<Map<String, dynamic>> _callVerifyAct(String description, String? imageBas
   return data;
 }
 
+// fire-and-forget push — fails silently if target has no FCM token
 Future<void> _sendPushNotification(String targetUid, String title, String body) async {
   try {
     await http.post(
@@ -2358,6 +2389,7 @@ Future<void> _updateMyLocation() async {
   if (pos != null) await _saveMyLocation(pos);
 }
 
+// pings the worker to notify users within the nearby radius about a new request
 Future<void> _notifyNearby(String requestId) async {
   try {
     await http.post(
@@ -2450,6 +2482,7 @@ void _showPostRequestSheet(BuildContext context) {
 }
 
 // ─── CHAT ─────────────────────────────────────────────────────────────────────
+// 1:1 messaging between requester and volunteer for a specific request
 
 class ChatScreen extends StatefulWidget {
   final String chatId, otherName, otherUid;
@@ -2521,6 +2554,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _send() async {
+    // send a chat message, then scroll to bottom + clear the input
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     final user = FirebaseAuth.instance.currentUser;
@@ -2952,7 +2986,9 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
 }
 
 // ─── NEARBY MAP (CartoDB) ───────────────────────────────────────────────────
+// shows open requests as pins on a map — users can tap to claim from here too
 
+// haversine distance — used to filter nearby requests to the user's radius setting
 double _distanceMiles(double lat1, double lon1, double lat2, double lon2) {
   const double earthRadiusMi = 3958.8;
   final double dLat = (lat2 - lat1) * math.pi / 180;
@@ -3164,12 +3200,14 @@ class _FullscreenMapScreen extends StatelessWidget {
 }
 
 // ─── LEADERBOARD ──────────────────────────────────────────────────────────────
+// top users sorted by kindness score — shows level badge and acts count
 
 class LeaderboardScreen extends StatelessWidget {
   const LeaderboardScreen({super.key});
   @override
   Widget build(BuildContext context) {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    // ranked top-50 helpers, excludes anyone the user has blocked
     return Scaffold(
       backgroundColor: kBackground,
       appBar: AppBar(
@@ -3238,10 +3276,12 @@ class LeaderboardScreen extends StatelessWidget {
 }
 
 // ─── PROFILE ──────────────────────────────────────────────────────────────────
+// own profile: edit username/bio/phone/photo, view points and badges
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
+  // TODO: move phone number to the private subcollection only — it's PII
   Future<void> _showEditProfile(BuildContext context, Map<String, dynamic> data, String level) async {
     var phone = '';
     try {
@@ -3836,6 +3876,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
+// account, notifications, nearby radius, theme, privacy links, report, delete
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -3849,6 +3890,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   String _language = 'English';
   double _nearbyRadiusMi = 1.0;
+  // TODO: pull this from package_info at startup instead of hardcoding fallback
   String _appVersion = 'bv0.5.0';
 
   @override
@@ -4192,6 +4234,7 @@ class _SettingsTile extends StatelessWidget {
 }
 
 // ─── SHARED WIDGETS ───────────────────────────────────────────────────────────
+// dialogs, cards, buttons that are reused across multiple screens
 
 class _Pressable extends StatefulWidget {
   final Widget child;
