@@ -53,6 +53,18 @@ public); secret values live only in the files/locations referenced below.
   within the radius of the user's location (only when location is loaded; `_distanceMiles`
   haversine helper). Count chip also shows "· within X mi". Release APK rebuilt (57.5 MB) +
   installed on phone as `com.kindred.app` (running). Version still 0.5.0. NOT committed.
+- **Profile photo picker (v0.5.0)**: in-app profile photo changer via `image_picker`
+  (gallery only, 512x512 JPEG q72, stored as `data:image/jpeg;base64,...` in the user doc's
+  `photoUrl`). Edit Profile sheet ("Profile Photo" row) has a CircleAvatar + "Choose photo"
+  button + "Cancel" revert; new top-level helpers `_avatarImage(Object? url)` (data URI →
+  MemoryImage else NetworkImage) and `_myPhotoUrl()`. Avatar display uses `_avatarImage`
+  everywhere: feed posts (write `myPhoto`), leaderboard, chats, `_AvatarWithFrame`, profile
+  header, Home AppBar (StreamBuilder on user doc photoUrl, fallback `user?.photoURL`).
+  `firebase_storage` is already a dependency but NOT used (photos go in the user doc).
+- **Login logo is now DARKISH YELLOW**: new `assets/logo_banner_login.png` (Pillow: hue→46,
+  sat→190, V scaled so max RGB 122→185) ~rgb(144,153,39) mustard wordmark, transparent bg,
+  used ONLY on the login screen (line ~800); Home AppBar still uses the mid-green
+  `assets/logo_banner.png`. pubspec.yaml now lists both banner assets. NOT committed.
 - Badges/thank-you notes/"Describe your own act" now use theme-aware `kBadge` token: BLUE
   `#3B82F6` in LIGHT mode, dark mode UNCHANGED (stays teal `#2DD4BF`). Switched from gold
   `#D97706` on user request (gold didn't fit the vibe). Applied to `_BadgeChip` (bg tint/border/
@@ -145,6 +157,17 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-03 Profile photo picker + yellow login logo built and verified. Profile photo:
+  `image_picker` (gallery, 512x512 JPEG q72) → base64 data URI stored in user doc `photoUrl`;
+  Edit Profile "Profile Photo" row (CircleAvatar + Choose photo/Cancel), `_avatarImage`/
+  `_myPhotoUrl` helpers, avatars now read photoUrl in feed/leaderboard/chats/frames/profile/
+  Home AppBar. Login logo: `assets/logo_banner_login.png` made from the green banner (Pillow
+  hue→46, sat→190, max RGB 122→185) → darkish mustard ~rgb(144,153,39); login screen uses it,
+  Home AppBar keeps mid-green. Fixed the StatefulBuilder block-body paren mismatch (missing
+  `)` for the Container — file now compiles). Analyze clean (18 baseline info lints), release
+  APK rebuilt (57.8 MB, com.kindred.app 0.5.0, SHA-256
+  BC181F940E1F1762236155560C9302CA8525BB3E7F5C05F11925231C91611855) + adb install -r
+  Success + running (pid 19276, Resumed). NOT yet committed/pushed.
 - 2026-08-03 Logo second pass: forest green (0.45x V) was too dark / hard to see on the teal
   login gradient, so `assets/logo_banner.png` was re-processed from the original backup at
   0.62x V → mid green ~rgb(74,101,77) (transparency re-applied in the same pass). Login top

@@ -41,6 +41,7 @@ flutter:
     - assets/volunteers.jpg
     - assets/cleanup.jpg
     - assets/logo_banner.png
+    - assets/logo_banner_login.png
 
 flutter_launcher_icons:
   android: true

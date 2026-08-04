@@ -42,6 +42,33 @@ import 'dart:math' as math;
 final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
 int _localNotifId = 0;
 
+ImageProvider? _avatarImage(Object? url) {
+  if (url == null) return null;
+  final s = url.toString();
+  if (s.isEmpty) return null;
+  if (s.startsWith('data:')) {
+    final idx = s.indexOf(',');
+    if (idx < 0) return null;
+    try {
+      return MemoryImage(base64Decode(s.substring(idx + 1)));
+    } catch (_) {
+      return null;
+    }
+  }
+  return NetworkImage(s);
+}
+
+Future<String> _myPhotoUrl() async {
+  try {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return '';
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    return (doc.data()?['photoUrl'] as String?) ?? '';
+  } catch (_) {
+    return '';
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Notification-type messages are displayed by the OS automatically when the
@@ -770,7 +797,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 _StaggerIn(child: Column(children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(28),
-                    child: Image.asset('assets/logo_banner.png', width: 260, fit: BoxFit.contain),
+                    child: Image.asset('assets/logo_banner_login.png', width: 260, fit: BoxFit.contain),
                   ),
                   const SizedBox(height: 26),
                   const Text('Neighbors helping neighbors.', style: TextStyle(fontSize: 15, color: Colors.white70)),
@@ -1460,8 +1487,9 @@ class HomeScreen extends StatelessWidget {
           'completedAt': FieldValue.serverTimestamp(),
         });
 
+        final myPhoto = await _myPhotoUrl();
         await FirebaseFirestore.instance.collection('feed').add({
-          'uid': user.uid, 'name': user.displayName, 'photoUrl': user.photoURL,
+          'uid': user.uid, 'name': user.displayName, 'photoUrl': myPhoto.isNotEmpty ? myPhoto : user.photoURL,
           'act': act, 'emoji': emoji, 'createdAt': FieldValue.serverTimestamp(),
         });
 
@@ -1520,8 +1548,9 @@ class HomeScreen extends StatelessWidget {
       'act': act, 'emoji': _categoryEmoji(category), 'points': pts, 'approved': true, 'reason': reason,
       'completedAt': FieldValue.serverTimestamp(),
     });
+    final myPhoto = await _myPhotoUrl();
     await FirebaseFirestore.instance.collection('feed').add({
-      'uid': user.uid, 'name': user.displayName, 'photoUrl': user.photoURL,
+      'uid': user.uid, 'name': user.displayName, 'photoUrl': myPhoto.isNotEmpty ? myPhoto : user.photoURL,
       'act': act, 'emoji': _categoryEmoji(category), 'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -1613,17 +1642,25 @@ class HomeScreen extends StatelessWidget {
         centerTitle: true,
         leading: IconButton(icon: Icon(Icons.logout_rounded, color: kTextSecondary), onPressed: _signOut),
         actions: [
-          GestureDetector(
-            onTap: () { final m = context.findAncestorStateOfType<_MainScreenState>(); m?.switchToTab(4); },
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: CircleAvatar(
-                radius: 17,
-                backgroundImage: user?.photoURL != null ? NetworkImage(user!.photoURL!) : null,
-                backgroundColor: kAccent,
-                child: user?.photoURL == null ? const Icon(Icons.person, color: Colors.white, size: 17) : null,
-              ),
-            ),
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
+            builder: (context, snapshot) {
+              final photo = (snapshot.data?.data() as Map<String, dynamic>?)?['photoUrl'];
+              return GestureDetector(
+                onTap: () { final m = context.findAncestorStateOfType<_MainScreenState>(); m?.switchToTab(4); },
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: CircleAvatar(
+                    radius: 17,
+                    backgroundImage: _avatarImage(photo ?? user?.photoURL),
+                    backgroundColor: kAccent,
+                    child: (photo == null || photo.toString().isEmpty) && user?.photoURL == null
+                        ? const Icon(Icons.person, color: Colors.white, size: 17)
+                        : null,
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -1806,7 +1843,7 @@ class HomeScreen extends StatelessWidget {
                           margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
                           child: Row(children: [
-                            CircleAvatar(radius: 18, backgroundImage: f['photoUrl'] != null ? NetworkImage(f['photoUrl']) : null, backgroundColor: kAccent,
+                            CircleAvatar(radius: 18, backgroundImage: _avatarImage(f['photoUrl']), backgroundColor: kAccent,
                                 child: f['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null),
                             const SizedBox(width: 10),
                             Expanded(child: RichText(text: TextSpan(style: TextStyle(color: kTextSecondary, fontSize: 13), children: [
@@ -3164,7 +3201,7 @@ class LeaderboardScreen extends StatelessWidget {
                       ),
                       child: Row(children: [
                         SizedBox(width: 40, child: rank <= 3 ? _Medal(rank: rank, size: 34) : Text(rankLabel, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: rankColor))),
-                        CircleAvatar(radius: 18, backgroundImage: data['photoUrl'] != null ? NetworkImage(data['photoUrl']) : null, backgroundColor: kAccent, child: data['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null),
+                        CircleAvatar(radius: 18, backgroundImage: _avatarImage(data['photoUrl']), backgroundColor: kAccent, child: data['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null),
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(data['username']?.isNotEmpty == true ? '@${data['username']}' : data['name'] ?? 'Kindred Member',
@@ -3210,9 +3247,21 @@ class ProfileScreen extends StatelessWidget {
     final canEditFrame = level == 'Legend';
     int selectedBannerColor = data['bannerColor'] ?? 0xFF7BAE8A;
     String selectedFrame = data['frameStyle'] ?? 'none';
+    String? newPhotoData;
+    void Function(VoidCallback)? setModalState;
+
+    Future<void> pickPhoto() async {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512, imageQuality: 72);
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      setModalState?.call(() => newPhotoData = 'data:image/jpeg;base64,${base64Encode(bytes)}');
+    }
 
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
-      builder: (_) => StatefulBuilder(builder: (context, setModalState) => Container(
+      builder: (_) => StatefulBuilder(builder: (context, setState) {
+        setModalState = setState;
+        return Container(
         height: MediaQuery.of(context).size.height * 0.95,
         decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
         padding: EdgeInsets.only(left: 24, right: 24, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 24),
@@ -3225,6 +3274,7 @@ class ProfileScreen extends StatelessWidget {
                 if (canEditUsername) { updates['username'] = usernameController.text.trim(); updates['bio'] = bioController.text.trim(); }
                 if (canEditBanner) updates['bannerColor'] = selectedBannerColor;
                 if (canEditFrame) updates['frameStyle'] = selectedFrame;
+                if (newPhotoData != null) updates['photoUrl'] = newPhotoData;
                 await FirebaseFirestore.instance.collection('users').doc(user?.uid).update(updates);
                 await FirebaseFirestore.instance
                     .collection('users').doc(user?.uid).collection('private').doc('data')
@@ -3235,6 +3285,32 @@ class ProfileScreen extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 20),
+          _ProfileField(title: 'Profile Photo', locked: false, lockMessage: '',
+              child: Row(children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundImage: _avatarImage(newPhotoData ?? data['photoUrl'] ?? user?.photoURL),
+                  backgroundColor: kAccent.withValues(alpha: 0.3),
+                  child: newPhotoData == null && data['photoUrl'] == null && user?.photoURL == null
+                      ? const Icon(Icons.person, size: 30, color: Colors.white)
+                      : null,
+                ),
+                const SizedBox(width: 14),
+                Expanded(child: Wrap(spacing: 8, children: [
+                  OutlinedButton.icon(
+                    onPressed: pickPhoto,
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Choose photo'),
+                    style: OutlinedButton.styleFrom(foregroundColor: kAccent, side: BorderSide(color: kAccent.withValues(alpha: 0.6))),
+                  ),
+                  if (newPhotoData != null)
+                    TextButton(
+                      onPressed: () => setState(() => newPhotoData = null),
+                      child: Text('Cancel', style: TextStyle(color: kTextSecondary)),
+                    ),
+                ])),
+              ])),
+          const SizedBox(height: 16),
           _ProfileField(title: 'Username', locked: !canEditUsername, lockMessage: 'Reach Helper to unlock',
               child: TextField(controller: usernameController, enabled: canEditUsername, style: TextStyle(color: kTextPrimary),
                   decoration: _fieldDecoration('username'))),
@@ -3251,7 +3327,7 @@ class ProfileScreen extends StatelessWidget {
               child: Wrap(spacing: 10, children: bannerColors.map((color) {
                 final isSelected = selectedBannerColor == color.toARGB32();
                 return GestureDetector(
-                  onTap: canEditBanner ? () => setModalState(() => selectedBannerColor = color.toARGB32()) : null,
+                  onTap: canEditBanner ? () => setState(() => selectedBannerColor = color.toARGB32()) : null,
                   child: Container(width: 38, height: 38, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: isSelected ? Border.all(color: Colors.white, width: 3) : null),
                       child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 18) : null),
                 );
@@ -3262,7 +3338,7 @@ class ProfileScreen extends StatelessWidget {
                 final labels = {'none': 'None', 'gold': 'Gold', 'purple': 'Purple', 'rainbow': 'Rainbow'};
                 final isSelected = selectedFrame == f;
                 return GestureDetector(
-                  onTap: canEditFrame ? () => setModalState(() => selectedFrame = f) : null,
+                  onTap: canEditFrame ? () => setState(() => selectedFrame = f) : null,
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(color: isSelected ? kAccent.withValues(alpha: 0.2) : kCardLight, borderRadius: BorderRadius.circular(10), border: isSelected ? Border.all(color: kAccent) : null),
@@ -3270,8 +3346,8 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 );
               }).toList())),
-        ])),
-      )),
+        ])));
+      }),
     );
   }
 
@@ -3354,7 +3430,7 @@ class ProfileScreen extends StatelessWidget {
                         constraints: BoxConstraints(maxWidth: constraints.maxWidth),
                         child: Column(mainAxisSize: MainAxisSize.min, children: [
                           const SizedBox(height: 14),
-                          _AvatarWithFrame(photoUrl: user?.photoURL, frameStyle: frameStyle),
+                          _AvatarWithFrame(photoUrl: data?['photoUrl'] ?? user?.photoURL, frameStyle: frameStyle),
                           const SizedBox(height: 10),
                           Text(username.isNotEmpty ? '@$username' : user?.displayName ?? 'Kindred Member',
                               maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -3996,7 +4072,7 @@ class _BlockedUsersSection extends StatelessWidget {
               final nameField = d?['name'] as String?;
               final name = (usernameField != null && usernameField.isNotEmpty ? '@$usernameField' : nameField) ?? 'Blocked user';
               return ListTile(
-                leading: CircleAvatar(radius: 16, backgroundImage: d?['photoUrl'] != null ? NetworkImage(d!['photoUrl']) : null, backgroundColor: kCardLight, child: d?['photoUrl'] == null ? const Icon(Icons.person, size: 16) : null),
+                leading: CircleAvatar(radius: 16, backgroundImage: _avatarImage(d?['photoUrl']), backgroundColor: kCardLight, child: d?['photoUrl'] == null ? const Icon(Icons.person, size: 16) : null),
                 title: Text(name, style: TextStyle(color: kTextPrimary, fontSize: 14)),
                 trailing: TextButton(
                   onPressed: () async {
@@ -4691,7 +4767,7 @@ class _AvatarWithFrame extends StatelessWidget {
       case 'purple': frameColor = const Color(0xFF7B1FA2); break;
       case 'rainbow': gradientColors = [Colors.red, Colors.orange, Colors.yellow, Colors.green, Colors.blue, Colors.purple]; break;
     }
-    final avatar = CircleAvatar(radius: 42, backgroundImage: photoUrl != null ? NetworkImage(photoUrl!) : null, backgroundColor: kAccent.withValues(alpha: 0.3), child: photoUrl == null ? const Icon(Icons.person, size: 42, color: Colors.white) : null);
+    final avatar = CircleAvatar(radius: 42, backgroundImage: _avatarImage(photoUrl), backgroundColor: kAccent.withValues(alpha: 0.3), child: photoUrl == null ? const Icon(Icons.person, size: 42, color: Colors.white) : null);
     if (frameStyle == 'none') return avatar;
     return Container(width: 96, height: 96, decoration: BoxDecoration(shape: BoxShape.circle, gradient: gradientColors != null ? LinearGradient(colors: gradientColors) : null, color: frameColor), padding: const EdgeInsets.all(3), child: avatar);
   }
