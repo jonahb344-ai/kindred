@@ -164,6 +164,14 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-03 Link-opening fix: the Settings Privacy/TOS hyperlinks showed "Could not open
+  link" — root cause was Android 11+ package visibility: `canLaunchUrl` returned false for
+  `https` because the manifest only declared a `PROCESS_TEXT` query. Fixed by adding
+  `<queries>` for `android.intent.action.VIEW` with `https` + `mailto` schemes to
+  AndroidManifest.xml, and `_openUrl` now calls `launchUrl(externalApplication)` directly
+  (try/catch) instead of gating on `canLaunchUrl`. Analyze clean, release APK rebuilt
+  (57.8 MB) + adb install -r Success + running. User verified links now open in the phone
+  browser. Committed 2f613c9 + pushed.
 - 2026-08-03 Privacy policy + Terms of Service: added a `/terms` GET route to worker.js
   (TERMS_PAGE, on-brand HTML, 10 sections: use of service, helping each other, your content,
   points, no warranty, liability, safety, termination, changes, contact) and redeployed via
@@ -433,6 +441,11 @@ public); secret values live only in the files/locations referenced below.
   Row(mainAxisSize: min)` so they stay on one line. Destructive dialogs = Cancel LEFT +
   action RIGHT; non-destructive = action LEFT + Cancel/Skip RIGHT.
 - The `assets/*.jpg` images are used by the onboarding screens — do NOT delete.
+- Android 11+ package visibility: `canLaunchUrl` returns FALSE for `https`/`mailto` unless
+  AndroidManifest.xml declares a `<queries><intent>` with `android.intent.action.VIEW` + the
+  scheme. The manifest now declares VIEW for `https` + `mailto` (in addition to the Flutter
+  `PROCESS_TEXT` query). Prefer launching directly with `launchUrl(...externalApplication)`
+  in a try/catch rather than gating on `canLaunchUrl`.
 - When worker.js changes, redeploy with `npx.cmd wrangler deploy worker/worker.js
   --name kindred --compatibility-date 2026-08-02` (dashboard editor is read-only on Jonah's
   account; secrets are preserved on code-only deploys).
