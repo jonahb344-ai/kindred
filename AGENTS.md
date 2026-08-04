@@ -66,6 +66,12 @@ public); secret values live only in the files/locations referenced below.
   cleanest look on the teal→navy login gradient after the dark-green and mustard attempts were
   rejected. Used ONLY on the login screen (line ~800); Home AppBar still uses the mid-green
   `assets/logo_banner.png`. pubspec.yaml lists both banner assets. Committed + pushed (685234a).
+- **Privacy policy + Terms of Service**: live at https://kindred.jonahb344.workers.dev/privacy
+  and .../terms (worker GET routes; terms page added 2026-08-03). Settings page bottom now shows
+  "By using Kindred you agree to our Privacy Policy and Terms of Service" as tappable hyperlink
+  text (TapGestureRecognizer + url_launcher, externalApplication), opening in the phone browser.
+  `_openUrl` helper in _SettingsScreenState. Requires `package:flutter/gestures.dart` import.
+  Worker redeployed (version eb82f6e1). Committed + pushed (db0ffd0).
 - Badges/thank-you notes/"Describe your own act" now use theme-aware `kBadge` token: BLUE
   `#3B82F6` in LIGHT mode, dark mode UNCHANGED (stays teal `#2DD4BF`). Switched from gold
   `#D97706` on user request (gold didn't fit the vibe). Applied to `_BadgeChip` (bg tint/border/
@@ -158,6 +164,16 @@ public); secret values live only in the files/locations referenced below.
   technical sections (architecture/security, build-from-source, worker deploy) or images in it.
 
 ## Work log (append-only)
+- 2026-08-03 Privacy policy + Terms of Service: added a `/terms` GET route to worker.js
+  (TERMS_PAGE, on-brand HTML, 10 sections: use of service, helping each other, your content,
+  points, no warranty, liability, safety, termination, changes, contact) and redeployed via
+  wrangler (version eb82f6e1, 27.81 KiB) — verified live 200. Settings page now ends with a
+  hyperlinked line "By using Kindred you agree to our Privacy Policy and Terms of Service"
+  (Text.rich + TapGestureRecognizer, `_openUrl` launches the phone browser via url_launcher
+  externalApplication; requires the `package:flutter/gestures.dart` import). Added the
+  `use_build_context_synchronously`-clean guard (`mounted` instead of `context.mounted`).
+  Analyze clean (18 baseline info lints), release APK rebuilt (57.8 MB) + adb install -r
+  Success + running (MainActivity in focus). Committed db0ffd0 + pushed.
 - 2026-08-03 Login logo now WHITE: user rejected the dark-green and darkish-mustard attempts.
   `assets/logo_banner_login.png` recolored to pure white `rgb(255,255,255)` (Pillow: set RGB to
   (255,255,255) where alpha > 0, preserved the transparent bg + antialiasing). Used ONLY on
