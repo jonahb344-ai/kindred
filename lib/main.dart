@@ -4012,7 +4012,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 backgroundColor: kCard,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 title: Text('About Kindred', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800)),
-                content: Text('Kindred is a community mutual-aid app where neighbors can help neighbors with everyday tasks — completely free of charge, powered by kindness.\n\nBuilt with love to make communities stronger, one act at a time.', style: TextStyle(color: kTextSecondary, height: 1.6)),
+                content: Text('Kindred is a community mutual-aid app where neighbors can help neighbors with everyday tasks — completely free of charge, powered by kindness.\n\nBuilt with love to make communities stronger, one act at a time. Made with ❤️ in Bartlett, TN by Jonah B.', style: TextStyle(color: kTextSecondary, height: 1.6)),
                 actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('Close', style: TextStyle(color: kAccent)))],
               )),
             ),
