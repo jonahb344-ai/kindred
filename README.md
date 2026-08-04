@@ -26,7 +26,7 @@ Download link: [kindred.apk](https://github.com/jonahb344-ai/kindred/releases/la
 - **Open the File**: Open your phone's Files or My Files app, go to the Downloads folder, and tap the APK file (it should be something like "kindred.apk").
 - **Install**: Tap Install on the screen prompt and wait for the process to finish.
 - **Run**: Open your app drawer (Usually by swiping up from the bottom of your home screen, search "Kindred" and click on it. 
-
+If you want the link to the web app version you can find that [here](https://kindred.smartlights.lol)
 
 
 
