@@ -21,6 +21,7 @@
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -4030,8 +4031,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SettingsSection(title: 'Account', children: [
             _SettingsTile(
               icon: Icons.logout_rounded,
-              title: 'Sign Out',
-              onTap: () async {
+              title: 'Sign Out',              onTap: () async {
                 await GoogleSignIn().signOut();
                 await FirebaseAuth.instance.signOut();
               },
@@ -4043,9 +4043,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: () => _deleteAccount(context),
             ),
           ]),
+
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 8),
+            child: Text.rich(
+              TextSpan(
+                style: TextStyle(fontSize: 12, color: kTextSecondary, height: 1.8),
+                children: [
+                  TextSpan(text: 'By using Kindred you agree to our '),
+                  TextSpan(
+                    text: 'Privacy Policy',
+                    style: TextStyle(color: kAccent, fontWeight: FontWeight.w600),
+                    recognizer: TapGestureRecognizer()
+                      ..onTap = () => _openUrl('https://kindred.jonahb344.workers.dev/privacy'),
+                  ),
+                  TextSpan(text: ' and '),
+                  TextSpan(
+                    text: 'Terms of Service',
+                    style: TextStyle(color: kAccent, fontWeight: FontWeight.w600),
+                    recognizer: TapGestureRecognizer()
+                      ..onTap = () => _openUrl('https://kindred.jonahb344.workers.dev/terms'),
+                  ),
+                  TextSpan(text: '.'),
+                ],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open link')));
+    }
   }
 }
 

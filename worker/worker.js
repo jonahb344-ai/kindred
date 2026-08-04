@@ -33,6 +33,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/privacy') {
       return privacyPage();
     }
+    if (request.method === 'GET' && url.pathname === '/terms') {
+      return termsPage();
+    }
     if (request.method === 'POST' && url.pathname === '/verify') {
       return handleVerify(request, env);
     }
@@ -203,6 +206,101 @@ const PRIVACY_PAGE = `<!DOCTYPE html>
 
 function privacyPage() {
   return new Response(PRIVACY_PAGE, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+    },
+  });
+}
+
+// ─── /terms (public page) ─────────────────────────────────────────────────────
+
+const TERMS_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms of Service — Kindred</title>
+<style>
+  body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f5f8fa;color:#0f172a;line-height:1.7;}
+  .wrap{max-width:720px;margin:0 auto;padding:48px 24px 80px;}
+  h1{font-size:30px;margin:0 0 8px;}
+  .updated{color:#64748b;font-size:13px;margin-bottom:32px;}
+  h2{font-size:19px;margin:32px 0 8px;color:#0d9488;}
+  p,li{font-size:15px;color:#334155;}
+  ul{padding-left:22px;}
+  a{color:#0d9488;}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px 24px;margin-top:16px;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Terms of Service</h1>
+    <div class="updated">Last updated: August 3, 2026</div>
+
+    <div class="card">
+      <p>Welcome to Kindred. By creating an account or using the app, you agree to these
+      terms. Kindred is a free community mutual-aid app that connects neighbors who want to
+      help each other. Please read these terms carefully.</p>
+    </div>
+
+    <h2>1. Using Kindred</h2>
+    <ul>
+      <li>You must be at least 13 years old to use Kindred.</li>
+      <li>Kindred is for real, everyday kindness between neighbors. Use it in good faith.</li>
+      <li>You are responsible for your account and for keeping your login details secure.</li>
+      <li>You agree not to misuse the app, post harmful or illegal content, or harass other users.</li>
+    </ul>
+
+    <h2>2. Helping each other</h2>
+    <p>Kindred connects neighbors who post and claim small favors. People help voluntarily and
+    free of charge. We ask that you:
+    <ul>
+      <li>Only claim favors you can actually help with.</li>
+      <li>Show up on time and communicate with the person you're helping.</li>
+      <li>Be kind and respectful in chats and in person.</li>
+    </ul>
+
+    <h2>3. Your content</h2>
+    <p>You keep ownership of the requests, messages, and acts you post. By posting, you give
+    Kindred permission to display them in the app so neighbors can help. Please don't post
+    private information you're not comfortable sharing.</p>
+
+    <h2>4. Points, levels, and badges</h2>
+    <p>Points and badges reward kindness. They have no monetary value and cannot be bought,
+    sold, or transferred. We may adjust or correct points if something goes wrong.</p>
+
+    <h2>5. No warranty</h2>
+    <p>Kindred is provided "as is" and "as available" without warranties of any kind. We do our
+    best, but we can't guarantee the app will always be up, error-free, or that every
+    interaction between neighbors will go smoothly.</p>
+
+    <h2>6. Limitation of liability</h2>
+    <p>To the fullest extent allowed by law, Kindred isn't responsible for any indirect or
+    consequential damages from using the app or from interactions between users. Helping a
+    neighbor is done voluntarily at your own risk.</p>
+
+    <h2>7. Safety</h2>
+    <p>Never share sensitive personal or financial information. If someone asks you for money or
+    personal data, don't provide it. You can block or report users through the app.</p>
+
+    <h2>8. Termination</h2>
+    <p>You can stop using Kindred anytime by deleting your account in Settings. We may suspend or
+    remove accounts that break these terms or harm the community.</p>
+
+    <h2>9. Changes to these terms</h2>
+    <p>If we make significant changes, we'll update this page and note the new date above.
+    Continued use of the app after changes means you accept the updated terms.</p>
+
+    <h2>10. Contact us</h2>
+    <p>Questions about these terms? Email:
+    <a href="mailto:jonahb344+kindred@gmail.com">jonahb344+kindred@gmail.com</a></p>
+  </div>
+</body>
+</html>`;
+
+function termsPage() {
+  return new Response(TERMS_PAGE, {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
