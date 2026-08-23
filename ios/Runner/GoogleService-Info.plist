@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>193898349536-a4ou63ke2fb9o1u1l945mcl4ai2lccuh.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.193898349536-a4ou63ke2fb9o1u1l945mcl4ai2lccuh</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>193898349536-csspn2pe381jbtlerp8oa58j5q8iq6lr.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyCYL8kqLN47lfxxVj6ctgCTfX6uSv0GoFA</string>
+	<key>GCM_SENDER_ID</key>
+	<string>193898349536</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.jonahb344.kindred</string>
+	<key>PROJECT_ID</key>
+	<string>kindred-app-2fe7a</string>
+	<key>STORAGE_BUCKET</key>
+	<string>kindred-app-2fe7a.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:193898349536:ios:441b25eab08e42bf34e185</string>
+	<key>DATABASE_URL</key>
+	<string>https://kindred-app-2fe7a-default-rtdb.firebaseio.com</string>
+</dict>
+</plist>

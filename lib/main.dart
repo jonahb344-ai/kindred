@@ -81,10 +81,13 @@ Future<String> _myPhotoUrl() async {
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
-// sets up local notifications + foreground FCM listener (android only)
+// sets up local notifications + foreground FCM listener (android + ios)
 Future<void> _initNotifications() async {
   await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
-  const settings = InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher'));
+  const settings = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    iOS: DarwinInitializationSettings(),
+  );
   await localNotifications.initialize(settings: settings);
   FirebaseMessaging.onMessage.listen((message) async {
     // foreground messages need manual display via flutter_local_notifications
@@ -92,13 +95,16 @@ Future<void> _initNotifications() async {
       id: _localNotifId++,
       title: message.notification?.title ?? 'Kindred',
       body: message.notification?.body ?? '',
-      notificationDetails: const NotificationDetails(android: AndroidNotificationDetails(
-        'kindred_notifications',
-        'Kindred notifications',
-        channelDescription: 'Messages and request updates',
-        importance: Importance.high,
-        priority: Priority.high,
-      )),
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'kindred_notifications',
+          'Kindred notifications',
+          channelDescription: 'Messages and request updates',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
     );
   });
 }
@@ -706,7 +712,16 @@ class _LoginScreenState extends State<LoginScreen> {
         'joinedAt': FieldValue.serverTimestamp(),
       });
     }
-    final token = kIsWeb ? null : await FirebaseMessaging.instance.getToken();
+    // iOS dev builds signed with a free Apple account can't get an APNs token
+    // (push needs a paid account) — don't let that break sign-in
+    String? token;
+    if (!kIsWeb) {
+      try {
+        token = await FirebaseMessaging.instance.getToken();
+      } catch (_) {
+        token = null;
+      }
+    }
     await FirebaseFirestore.instance
         .collection('users').doc(user.uid).collection('private').doc('data')
         .set({'email': user.email, 'phone': '', 'fcmToken': token}, SetOptions(merge: true));
