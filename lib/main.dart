@@ -456,8 +456,15 @@ String _formatDateTime(Timestamp ts) {
   return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
 }
 
+// Block lists live in the user's OWN private doc. They used to sit on the public
+// profile, which meant every signed-in user could read everyone's block list and see
+// exactly who had blocked whom. The rules now enforce "you can't message someone who
+// blocked you" server-side instead, so nothing is lost by keeping this private.
+DocumentReference<Map<String, dynamic>> _blockedUsersRef(String? uid) =>
+    FirebaseFirestore.instance.collection('users').doc(uid).collection('private').doc('data');
+
 Future<List<String>> _getBlockedUsers(String uid) async {
-  final snap = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+  final snap = await _blockedUsersRef(uid).get();
   return List<String>.from(snap.data()?['blockedUsers'] ?? []);
 }
 
@@ -474,14 +481,14 @@ Future<void> _blockUser(BuildContext context, String uid, {String? name}) async 
     destructive: true,
   ));
   if (confirm != true) return;
-  await FirebaseFirestore.instance.collection('users').doc(current.uid).update({'blockedUsers': FieldValue.arrayUnion([uid])});
+  await _blockedUsersRef(current.uid).update({'blockedUsers': FieldValue.arrayUnion([uid])});
   if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User blocked.'), backgroundColor: kAccentDark));
 }
 
 Future<void> _unblockUser(BuildContext context, String uid) async {
   final current = FirebaseAuth.instance.currentUser;
   if (current == null) return;
-  await FirebaseFirestore.instance.collection('users').doc(current.uid).update({'blockedUsers': FieldValue.arrayRemove([uid])});
+  await _blockedUsersRef(current.uid).update({'blockedUsers': FieldValue.arrayRemove([uid])});
   if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User unblocked.'), backgroundColor: kAccentDark));
 }
 
@@ -568,7 +575,7 @@ Future<void> _submitReport(BuildContext context, String reportedUid, String repo
     'createdAt': FieldValue.serverTimestamp(),
   });
   if (alsoBlock) {
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).update({'blockedUsers': FieldValue.arrayUnion([reportedUid])});
+    await _blockedUsersRef(user.uid).update({'blockedUsers': FieldValue.arrayUnion([reportedUid])});
   }
   final emailSent = await _sendReportEmail(
     subject: 'Kindred Report: $reason ($reportedName)',
@@ -743,7 +750,7 @@ class _LoginScreenState extends State<LoginScreen> {
         'photoUrl': user.photoURL ?? '', 'bannerColor': 0xFF7BAE8A,
         'frameStyle': 'none', 'kindnessScore': 0, 'level': 'Newcomer',
         'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
-        'setupDone': false, 'tutorialDone': false, 'blockedUsers': [],
+        'setupDone': false, 'tutorialDone': false,
         'notifMessages': true, 'notifRequests': true, 'language': 'English',
         'nearbyRadiusMi': 1.0,
         'joinedAt': FieldValue.serverTimestamp(),
@@ -762,6 +769,21 @@ class _LoginScreenState extends State<LoginScreen> {
     await FirebaseFirestore.instance
         .collection('users').doc(user.uid).collection('private').doc('data')
         .set({'email': user.email, 'phone': '', 'fcmToken': token}, SetOptions(merge: true));
+
+    // One-time migration: block lists used to sit on the public profile, so anyone
+    // signed in could read everyone else's. Move whatever is still sitting there into
+    // the private doc, then take it off the public one. Doing it here means every
+    // account migrates itself the next time it signs in — no admin script needed.
+    final legacyBlocks = List<String>.from(snap.data()?['blockedUsers'] ?? const []);
+    if (legacyBlocks.isNotEmpty) {
+      try {
+        await _blockedUsersRef(user.uid).update(
+            {'blockedUsers': FieldValue.arrayUnion(legacyBlocks)});
+        await doc.update({'blockedUsers': FieldValue.delete()});
+      } catch (_) {
+        // not fatal -- worst case their blocks are in one place instead of the other
+      }
+    }
     _updateMyLocation();
   }
 
@@ -2161,9 +2183,9 @@ class RequestFeedTab extends StatelessWidget {
         }
         // Filter out blocked users
         return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance.collection('users').doc(currentUid).get(),
+          future: _blockedUsersRef(currentUid).get(),
           builder: (context, userSnap) {
-            final blockedUsers = List<String>.from((userSnap.data?.data() as Map<String, dynamic>?)?['blockedUsers'] ?? []);
+            final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
             final docs = snapshot.data!.docs.where((d) => !blockedUsers.contains((d.data() as Map)['requesterId'])).toList();
             return ListView.builder(
               padding: const EdgeInsets.all(16), itemCount: docs.length,
@@ -2698,15 +2720,14 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) return;
-      final myDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final myDoc = await _blockedUsersRef(uid).get();
       if (List<String>.from(myDoc.data()?['blockedUsers'] ?? []).contains(widget.otherUid)) {
         if (mounted) setState(() => _blocked = 'You blocked this user. Unblock them from their profile to chat again.');
         return;
       }
-      final otherDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
-      if (List<String>.from(otherDoc.data()?['blockedUsers'] ?? []).contains(uid)) {
-        if (mounted) setState(() => _blocked = 'You can\'t message this user anymore.');
-      }
+      // We can no longer read whether THEY blocked us -- that list is private to them
+      // now. The server refuses the write instead (see blockedBy() in firestore.rules),
+      // so the chat just looks normal here and sending fails with a clear message.
     } catch (_) {}
   }
 
@@ -2734,14 +2755,18 @@ class _ChatScreenState extends State<ChatScreen> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You blocked this user. Unblock them to send messages.')));
         return;
       }
-      final otherDoc = await FirebaseFirestore.instance.collection('users').doc(widget.otherUid).get();
-      if (List<String>.from(otherDoc.data()?['blockedUsers'] ?? []).contains(user.uid)) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You can no longer message this user.')));
-        return;
-      }
       await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
         'senderId': user.uid, 'senderName': user.displayName, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
       });
+    } on FirebaseException catch (e) {
+      // The server turns this away when the other person has blocked us. Their block
+      // list is private to them, so we can't check it up front like we used to.
+      if (e.code == 'permission-denied') {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You can no longer message this user.')));
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message not sent. Check your connection and try again.')));
+      }
+      return;
     } catch (_) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message not sent. Check your connection and try again.')));
       return;
@@ -3076,9 +3101,9 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
             return const _EmptyState(icon: Icons.forum_outlined, title: 'No conversations yet', subtitle: 'Chats open up when someone claims your request');
           }
           return FutureBuilder<DocumentSnapshot>(
-            future: uid == null ? null : FirebaseFirestore.instance.collection('users').doc(uid).get(),
+            future: uid == null ? null : _blockedUsersRef(uid).get(),
             builder: (context, userSnap) {
-              final blockedUsers = List<String>.from((userSnap.data?.data() as Map<String, dynamic>?)?['blockedUsers'] ?? []);
+              final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
               final visible = chats.where((d) {
                 final data = d.data() as Map<String, dynamic>;
                 final isRequester = data['requesterId'] == uid;
@@ -3397,9 +3422,9 @@ class LeaderboardScreen extends StatelessWidget {
         centerTitle: true,
       ),
       body: FutureBuilder<DocumentSnapshot>(
-        future: currentUid == null ? null : FirebaseFirestore.instance.collection('users').doc(currentUid).get(),
+        future: currentUid == null ? null : _blockedUsersRef(currentUid).get(),
         builder: (context, userSnap) {
-          final blockedUsers = List<String>.from((userSnap.data?.data() as Map<String, dynamic>?)?['blockedUsers'] ?? []);
+          final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('users').orderBy('kindnessScore', descending: true).limit(50).snapshots(),
             builder: (context, snap) {
@@ -3849,7 +3874,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       destructive: true,
     ));
     if (confirm != true) return;
-    await FirebaseFirestore.instance.collection('users').doc(uid).update({'blockedUsers': FieldValue.arrayUnion([widget.uid])});
+    await _blockedUsersRef(uid).update({'blockedUsers': FieldValue.arrayUnion([widget.uid])});
     if (mounted) {
       setState(() => _isBlocked = true);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User blocked.'), backgroundColor: kAccentDark));
@@ -4330,9 +4355,9 @@ class _BlockedUsersSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     return StreamBuilder<DocumentSnapshot>(
-      stream: uid == null ? null : FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      stream: uid == null ? null : _blockedUsersRef(uid).snapshots(),
       builder: (context, snap) {
-        final blockedIds = List<String>.from((snap.data?.data() as Map<String, dynamic>?)?['blockedUsers'] ?? []);
+        final blockedIds = List<String>.from(snap.data?['blockedUsers'] ?? []);
         if (blockedIds.isEmpty) {
           return const _SettingsTile(icon: Icons.block_rounded, title: 'Blocked Users');
         }
@@ -4352,7 +4377,7 @@ class _BlockedUsersSection extends StatelessWidget {
                 trailing: TextButton(
                   onPressed: () async {
                     if (uid == null) return;
-                    await FirebaseFirestore.instance.collection('users').doc(uid).update({'blockedUsers': FieldValue.arrayRemove([id])});
+                    await _blockedUsersRef(uid).update({'blockedUsers': FieldValue.arrayRemove([id])});
                     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User unblocked.'), backgroundColor: kAccentDark));
                   },
                   child: Text('Unblock', style: TextStyle(color: kAccent, fontWeight: FontWeight.w600)),
