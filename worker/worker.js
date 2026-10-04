@@ -893,21 +893,22 @@ async function handleNotifyNearby(request, env) {
     const category = fieldValue(reqDoc, 'category') || 'a request';
 
     const users = await listUsers(oauth, sa.project_id);
-    let requesterBlocked = [];
-    for (const u of users) {
-      if (u.uid === requesterId) {
-        requesterBlocked = arrayOfStrings(u.fields, 'blockedUsers');
-        break;
-      }
-    }
+    // Block lists moved into each user's private doc (they used to sit on the public
+    // profile, which meant every signed-in user could read everyone's). The per-user
+    // loop already reads that doc for location/token, so we get blocks from the same
+    // read -- no extra requests. The requester isn't in the loop, so that's one extra.
+    const requesterPriv = await readFirestoreDoc(
+      oauth,
+      sa.project_id,
+      'users/' + encodeURIComponent(requesterId) + '/private/data'
+    );
+    const requesterBlocked = requesterPriv ? arrayOfStrings(requesterPriv, 'blockedUsers') : [];
 
     const title = 'New request near you!';
     let notified = 0;
     for (const u of users) {
       if (u.uid === requesterId) continue;
       if (fieldValue(u.fields, 'notifRequests') === false) continue;
-      if (arrayOfStrings(u.fields, 'blockedUsers').includes(requesterId)) continue;
-      if (requesterBlocked.includes(u.uid)) continue;
 
       const priv = await readFirestoreDoc(
         oauth,
@@ -915,6 +916,8 @@ async function handleNotifyNearby(request, env) {
         'users/' + encodeURIComponent(u.uid) + '/private/data'
       );
       if (!priv) continue;
+      if (arrayOfStrings(priv, 'blockedUsers').includes(requesterId)) continue;
+      if (requesterBlocked.includes(u.uid)) continue;
       const loc = fieldValue(priv, 'location');
       const token = fieldValue(priv, 'fcmToken');
       if (!loc || !token) continue;
