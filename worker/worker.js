@@ -65,6 +65,16 @@ function json(obj, status) {
   });
 }
 
+// Anthropic/FCM/Firestore errors can echo back request ids, prompt text, project
+// names or config state, which is free reconnaissance for anyone holding a valid
+// token. Log the real reason server-side (visible in `wrangler tail` and the
+// dashboard's Workers Logs) so it stays debuggable, but hand the client a generic
+// message. Never put a secret or a raw upstream body in here.
+function serverError(publicMessage, status, detail) {
+  console.error('[kindred] ' + publicMessage + ': ' + (detail === undefined ? '(no detail)' : detail));
+  return json({ error: publicMessage }, status || 500);
+}
+
 function corsPreflight() {
   return new Response(null, {
     status: 204,
@@ -349,33 +359,33 @@ const TERMS_PAGE = `<!DOCTYPE html>
     service to check the act is genuine. The photo is used for that check only and is not kept.
     Verification decisions can be wrong; if yours is, you can ask us to review it.</p>
 
-    <h2>7. No warranty</h2>
+    <h2>5. No warranty</h2>
     <p>Kindred is provided "as is" and "as available" without warranties of any kind. We do our
     best, but we can't guarantee the app will always be up, error-free, or that every
     interaction between neighbors will go smoothly.</p>
 
-    <h2>8. Limitation of liability</h2>
+    <h2>6. Limitation of liability</h2>
     <p>To the fullest extent allowed by law, Kindred isn't responsible for any indirect or
     consequential damages from using the app or from interactions between users. Helping a
     neighbor is done voluntarily at your own risk.</p>
 
-    <h2>9. Safety</h2>
+    <h2>7. Safety</h2>
     <p>Never share sensitive personal or financial information. If someone asks you for money or
     personal data, don't provide it. You can block or report users through the app.</p>
 
-    <h2>10. Termination</h2>
+    <h2>8. Termination</h2>
     <p>You can stop using Kindred anytime by deleting your account in Settings. We may suspend or
     remove accounts that break these terms or harm the community.</p>
 
-    <h2>11. Changes to these terms</h2>
+    <h2>9. Changes to these terms</h2>
     <p>If we make significant changes, we'll update this page and note the new date above.
     Continued use of the app after changes means you accept the updated terms.</p>
 
-    <h2>12. Accessibility</h2>
+    <h2>10. Accessibility</h2>
     <p>We aim to make Kindred usable with screen readers and by keyboard alone. If you hit a
     barrier, email us and we'll try to fix it.</p>
 
-    <h2>13. Contact us</h2>
+    <h2>11. Contact us</h2>
     <p>Questions about these terms? Email:
     <a href="mailto:jonahb344+kindred@gmail.com">jonahb344+kindred@gmail.com</a></p>
   </div>
@@ -635,6 +645,11 @@ async function writeNotification(sa, notif) {
     read: { booleanValue: false },
     createdAt: { timestampValue: new Date().toISOString() },
   };
+  // Keep the same shape the app writes, so every notification doc has a requestId
+  // even though the service account bypasses the client create rule.
+  if (notif.requestId) {
+    fields.requestId = { stringValue: String(notif.requestId) };
+  }
   const resp = await fetch(
     'https://firestore.googleapis.com/v1/projects/' + sa.project_id + '/databases/(default)/documents:commit',
     {
@@ -651,7 +666,7 @@ async function writeNotification(sa, notif) {
 async function handleVerify(request, env) {
   const sa = getServiceAccount(env);
   if (!sa) {
-    return json({ error: 'SERVICE_ACCOUNT is not configured on this Worker' }, 500);
+    return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
   }
   const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
   if (!auth) {
@@ -666,7 +681,7 @@ async function handleVerify(request, env) {
   }
 
   if (!env.ANTHROPIC_API_KEY) {
-    return json({ error: 'ANTHROPIC_API_KEY is not configured on this Worker' }, 500);
+    return serverError('Server temporarily unavailable', 500, 'ANTHROPIC_API_KEY binding missing');
   }
 
   const imageBase64 = body.imageBase64 ? String(body.imageBase64) : null;
@@ -724,7 +739,7 @@ async function handleVerify(request, env) {
 
     if (!resp.ok) {
       const errText = (await resp.text()).slice(0, 300);
-      return json({ error: 'Anthropic error: ' + resp.status + ' ' + errText }, 502);
+      return serverError('Verification service unavailable', 502, 'anthropic ' + resp.status + ' ' + errText);
     }
 
     const data = await resp.json();
@@ -743,7 +758,7 @@ async function handleVerify(request, env) {
       category: String(result.category || 'Other'),
     });
   } catch (e) {
-    return json({ error: 'Verification failed: ' + (e && e.message) }, 500);
+    return serverError('Verification failed', 500, e && e.message);
   }
 }
 
@@ -752,7 +767,7 @@ async function handleVerify(request, env) {
 async function handlePush(request, env) {
   const sa = getServiceAccount(env);
   if (!sa) {
-    return json({ error: 'SERVICE_ACCOUNT is not configured on this Worker' }, 500);
+    return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
   }
   const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
   if (!auth) {
@@ -831,11 +846,11 @@ async function handlePush(request, env) {
     );
     if (!resp.ok) {
       const t = (await resp.text()).slice(0, 200);
-      return json({ sent: false, error: 'FCM error: ' + resp.status + ' ' + t }, 502);
+      return serverError('Push delivery failed', 502, 'fcm ' + resp.status + ' ' + t);
     }
     return json({ sent: true });
   } catch (e) {
-    return json({ error: 'Push failed: ' + (e && e.message) }, 500);
+    return serverError('Push failed', 500, e && e.message);
   }
 }
 
@@ -846,7 +861,7 @@ const NEARBY_RADIUS_KM = 8;
 async function handleNotifyNearby(request, env) {
   const sa = getServiceAccount(env);
   if (!sa) {
-    return json({ error: 'SERVICE_ACCOUNT is not configured on this Worker' }, 500);
+    return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
   }
   const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
   if (!auth) {
@@ -931,6 +946,7 @@ async function handleNotifyNearby(request, env) {
         await sendFcm(sa, token, title, bodyMsg);
         await writeNotification(sa, {
           toUid: u.uid,
+          requestId: requestId,
           fromName: requesterName,
           title,
           body: requesterName + ' posted: ' + category,
@@ -942,6 +958,6 @@ async function handleNotifyNearby(request, env) {
     }
     return json({ notified });
   } catch (e) {
-    return json({ error: 'notifyNearby failed: ' + (e && e.message) }, 500);
+    return serverError('Broadcast failed', 500, e && e.message);
   }
 }
