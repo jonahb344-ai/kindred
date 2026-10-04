@@ -5,7 +5,9 @@ publish_to: 'none'
 version: 0.6.0+1
 
 environment:
-  sdk: ^3.12.2
+  # kept wide so the same file works on both Jonah's Windows PC (newer Flutter)
+  # and his MacBook (Flutter 3.38 / Dart 3.10, the last line that runs on macOS 13)
+  sdk: ">=3.8.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -17,16 +19,17 @@ dependencies:
   google_sign_in: ^6.2.1
   cloud_firestore: ^5.6.12
   image_picker: ^1.2.2
-  firebase_storage: ^12.4.10
   http: ^1.6.0
   flutter_map: ^8.3.0
   latlong2: ^0.9.1
-  share_plus: ^13.1.0
   url_launcher: ^6.3.2
   firebase_messaging: ^15.2.10
-  qr_flutter: ^4.1.0
   package_info_plus: ^10.1.0
   flutter_local_notifications: ^22.0.1
+  # NOTE: firebase_storage, share_plus and qr_flutter were removed 2026-10-04. Nothing imported
+  # them -- profile photos go into the user doc as a base64 data URI and the share/QR features
+  # are beta-gated behind snackbars. firebase_storage especially was worth dropping: the project
+  # never enabled Firebase Storage, so the bundled SDK was a capability the app didn't have.
 
 dev_dependencies:
   flutter_test:
@@ -34,10 +37,26 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.3
 
+# MacBook (macOS 13 Ventura) tops out at Xcode 15.2, which can't compile the
+# Swift in Firebase iOS SDK 12.x. Pinned to the mid-2024 FlutterFire set that
+# uses Firebase iOS 10.x (Xcode 15-compatible). Remove these once the Mac can
+# run a newer Xcode — the PC's Android builds don't care either way.
+dependency_overrides:
+  firebase_core: 3.3.0
+  firebase_auth: 5.1.4
+  firebase_messaging: 15.0.4
+  cloud_firestore: 5.2.1
+  # keep firestore's Dart siblings on the same 2024-08-06 release so the
+  # signatures match (6.6.x added a required listenSource param that breaks
+  # 5.2.1's calls)
+  cloud_firestore_platform_interface: 6.3.1
+  cloud_firestore_web: 4.1.1
+  google_sign_in: 6.2.1
+  google_sign_in_ios: 5.8.1
+
 flutter:
   uses-material-design: true
   assets:
-    - assets/neighborhood.jpg
     - assets/volunteers.jpg
     - assets/cleanup.jpg
     - assets/logo_banner.png

@@ -11,16 +11,39 @@ service cloud.firestore {
     // Public fields only (name, username, bio, photoUrl, score, etc.).
     // Email, phone and FCM tokens live in users/{uid}/private, owned by the user.
     match /users/{uid} {
+      // Points are only ever handed out 5 at a time (10 on weekends), whether you're
+      // logging your own act or someone is thanking you. Capping the movement per write
+      // stops anyone from typing their own score up to a million and topping the
+      // leaderboard, while still letting every real award through.
+      function scoreBumpOk() {
+        let before = resource.data;
+        let after = request.resource.data;
+        let beforeScore = before.keys().hasAll(['kindnessScore']) ? before.kindnessScore : 0;
+        let beforeActs = before.keys().hasAll(['actsCompleted']) ? before.actsCompleted : 0;
+        return after.kindnessScore is int
+          && after.actsCompleted is int
+          && after.kindnessScore >= beforeScore
+          && after.kindnessScore - beforeScore <= 10
+          && after.kindnessScore <= 10000
+          && after.actsCompleted - beforeActs <= 1;
+      }
+
       allow read: if signedIn();
       allow create: if signedIn() && uid == request.auth.uid;
       allow update: if signedIn() && (
-        uid == request.auth.uid
+        // editing your own profile -- free to change anything, but the points have to
+        // move in believable steps like everyone else's
+        (uid == request.auth.uid && (
+          !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['kindnessScore', 'actsCompleted'])
+          || scoreBumpOk()
+        ))
         // The points-awarding flow lets a requester update a volunteer's
-        // gamification fields only (no PII), with a sanity cap on the score.
+        // gamification fields only (no PII), in believable steps.
         || (
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['kindnessScore', 'level', 'actsCompleted', 'streak', 'lastActDate'])
-          && request.resource.data.kindnessScore <= 100000
+          && scoreBumpOk()
         )
       );
       allow delete: if signedIn() && uid == request.auth.uid;
@@ -95,7 +118,21 @@ service cloud.firestore {
               || get(/databases/$(database)/documents/requests/$(resource.data.chatId)).data.volunteerId == request.auth.uid);
       }
 
-      allow create: if signedIn();
+      // Writing one used to be open to any signed-in user, which meant anyone could
+      // push fake notifications into anyone else's inbox (fake "someone claimed your
+      // request" messages, phishing links, spam). Now the writer has to actually be
+      // one of the two people on the request the notification is about, and can't
+      // notify themselves. Requests that don't exist fail closed.
+      function notifRelatedParticipant() {
+        return request.resource.data.requestId is string
+          && (get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.requesterId == request.auth.uid
+              || get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.volunteerId == request.auth.uid);
+      }
+
+      allow create: if signedIn()
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid != request.auth.uid
+        && notifRelatedParticipant();
       allow read, update: if signedIn()
         && (resource.data.toUid == request.auth.uid || notifChatParticipant());
       allow delete: if signedIn()
