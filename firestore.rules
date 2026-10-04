@@ -134,13 +134,22 @@ service cloud.firestore {
 
       // Writing one used to be open to any signed-in user, which meant anyone could
       // push fake notifications into anyone else's inbox (fake "someone claimed your
-      // request" messages, phishing links, spam). Now the writer has to actually be
-      // one of the two people on the request the notification is about, and can't
-      // notify themselves. Requests that don't exist fail closed.
+      // request" messages, phishing links, spam). Two conditions now apply: the writer
+      // has to actually be one of the two people on the request the notification is
+      // about, AND the recipient (toUid) has to be the OTHER participant on that same
+      // request — so you can't reuse a request you're on to notify a random stranger.
+      // You also can't notify yourself. Requests that don't exist fail closed.
+      function notifRequest() {
+        return get(/databases/$(database)/documents/requests/$(request.resource.data.requestId));
+      }
       function notifRelatedParticipant() {
         return request.resource.data.requestId is string
-          && (get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.requesterId == request.auth.uid
-              || get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.volunteerId == request.auth.uid);
+          && (
+            (notifRequest().data.requesterId == request.auth.uid
+              && request.resource.data.toUid == notifRequest().data.volunteerId)
+            || (notifRequest().data.volunteerId == request.auth.uid
+              && request.resource.data.toUid == notifRequest().data.requesterId)
+          );
       }
 
       allow create: if signedIn()
