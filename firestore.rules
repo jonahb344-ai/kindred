@@ -110,7 +110,7 @@ service cloud.firestore {
         return a is string
           && exists(/databases/$(database)/documents/users/$(a)/private/data)
           && get(/databases/$(database)/documents/users/$(a)/private/data).data.blockedUsers is list
-          && get(/databases/$(database)/documents/users/$(a)/private/data).data.blockedUsers.contains(b);
+          && b in get(/databases/$(database)/documents/users/$(a)/private/data).data.blockedUsers;
       }
 
       allow read, write: if chatParticipant();
