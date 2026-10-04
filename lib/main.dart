@@ -65,6 +65,18 @@ ImageProvider? _avatarImage(Object? url) {
   return NetworkImage(s);
 }
 
+// Without this a screen reader hits every avatar as an unlabeled image, so the feed and the
+// leaderboard read as "image, image, image". Wrap a CircleAvatar in this and pass the name that
+// sits next to it, and it announces as "<name>'s profile photo" instead.
+Widget _avatarLabel(String? name, Widget avatar) {
+  final n = (name ?? '').trim();
+  return Semantics(
+    image: true,
+    label: n.isEmpty ? 'Profile photo' : "$n's profile photo",
+    child: ExcludeSemantics(child: avatar),
+  );
+}
+
 Future<String> _myPhotoUrl() async {
   try {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -152,21 +164,34 @@ bool _appIsDark = true;
 Color get kBackground => _appIsDark ? const Color(0xFF0B1220) : const Color(0xFFF5F8FA);
 Color get kCard => _appIsDark ? const Color(0xFF141E30) : const Color(0xFFFFFFFF);
 Color get kCardLight => _appIsDark ? const Color(0xFF1E2B42) : const Color(0xFFEAF0F4);
-Color get kAccent => _appIsDark ? const Color(0xFF2DD4BF) : const Color(0xFF0D9488);
-Color get kAccentDark => _appIsDark ? const Color(0xFF14B8A6) : const Color(0xFF0F766E);
-Color get kBadge => _appIsDark ? kAccent : const Color(0xFF3B82F6);
+// light-mode steps were nudged one darker (teal-700, teal-800, blue-700, slate-600) after a
+// real contrast audit — the old teal-600 / blue-500 / slate-500 values sat at 3.5:1 on white
+// and failed WCAG AA for text. dark mode already passed everywhere so it stayed as-is.
+Color get kAccent => _appIsDark ? const Color(0xFF2DD4BF) : const Color(0xFF0F766E);
+Color get kAccentDark => _appIsDark ? const Color(0xFF14B8A6) : const Color(0xFF115E59);
+Color get kBadge => _appIsDark ? kAccent : const Color(0xFF1D4ED8);
 // (kBadge is blue in light mode — gold clashed with the cards, tried it, didn't like it)
 Color get kTextPrimary => _appIsDark ? const Color(0xFFE7EDF4) : const Color(0xFF0F172A);
-Color get kTextSecondary => _appIsDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
-Color get kDivider => _appIsDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0);
+Color get kTextSecondary => _appIsDark ? const Color(0xFF94A3B8) : const Color(0xFF475569);
+Color get kDivider => _appIsDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
 
 LinearGradient get kAccentGradient => LinearGradient(
+  // light mode runs teal-800 -> teal-700 so WHITE text on the button clears 4.5:1. dark mode
+  // keeps the bright teal (it looks good on a navy bg) and leans on kOnAccent being dark
+  // instead of white, because white on #34D399 was only 1.9:1.
   colors: _appIsDark
       ? [const Color(0xFF14B8A6), const Color(0xFF34D399)]
-      : [const Color(0xFF0D9488), const Color(0xFF10B981)],
+      : [const Color(0xFF115E59), const Color(0xFF0F766E)],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );
+
+// foreground for anything sitting ON kAccentGradient. dark text on bright teal, white on the
+// darker light-mode stops.
+Color get kOnAccent => _appIsDark ? const Color(0xFF04211D) : Colors.white;
+
+// destructive button fill. red-500 (#EF4444) only gave 3.8:1 against white label text.
+const Color kDangerFill = Color(0xFFDC2626);
 
 BoxShadow get kCardShadow => BoxShadow(
   color: _appIsDark ? const Color(0x4D000000) : const Color(0x140F172A),
@@ -180,15 +205,20 @@ BoxShadow get kSoftShadow => BoxShadow(
   offset: const Offset(0, 4),
 );
 
+// Theme-aware on purpose. These only ever paint icons/chips (the label text uses kTextPrimary),
+// so the bar is WCAG 1.4.11 -> 3:1 against the 12%-tinted card they sit on. The light-mode set
+// is one step darker than the dark-mode set because amber/orange/green-500 fell to 1.96:1,
+// 2.48:1 and 2.89:1 on a white card. Light values clear 4.5:1 too, so they're safe if the color
+// ever gets reused for text.
 Color _categoryColor(String cat) {
-  // each category gets its own color for the chip/label
+  final light = !_appIsDark;
   switch (cat) {
-    case 'Grocery Run': return const Color(0xFF16A34A);
-    case 'Lawn Care': return const Color(0xFF0D9488);
-    case 'Moving Help': return const Color(0xFFF59E0B);
-    case 'Pet Care': return const Color(0xFFEC4899);
-    case 'Meal Prep': return const Color(0xFFF97316);
-    case 'Give a Ride': return const Color(0xFF3B82F6);
+    case 'Grocery Run': return light ? const Color(0xFF15803D) : const Color(0xFF16A34A);
+    case 'Lawn Care': return light ? const Color(0xFF0F766E) : const Color(0xFF14B8A6);
+    case 'Moving Help': return light ? const Color(0xFFB45309) : const Color(0xFFF59E0B);
+    case 'Pet Care': return light ? const Color(0xFFDB2777) : const Color(0xFFEC4899);
+    case 'Meal Prep': return light ? const Color(0xFFC2410C) : const Color(0xFFF97316);
+    case 'Give a Ride': return light ? const Color(0xFF2563EB) : const Color(0xFF3B82F6);
     default: return kAccent;
   }
 }
@@ -683,6 +713,11 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _isSignUp = false;
+  // sign-up is gated on this. our privacy policy says 13+, so the app should actually ask
+  // instead of just asserting it in a policy nobody reads. self-declaration, not DOB --
+  // storing a date of birth would be collecting MORE personal data, which is the opposite
+  // of what we want.
+  bool _ageConfirmed = false;
   bool _obscure = true;
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -702,7 +737,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final snap = await doc.get();
     if (!snap.exists) {
       await doc.set({
-        'name': user.displayName ?? user.email ?? 'Neighbor', 'username': '', 'bio': '',
+        // no email fallback here on purpose -- this doc is readable by every signed-in
+        // user, so an email in the display name would leak it to the whole neighborhood.
+        'name': user.displayName ?? 'Neighbor', 'username': '', 'bio': '',
         'photoUrl': user.photoURL ?? '', 'bannerColor': 0xFF7BAE8A,
         'frameStyle': 'none', 'kindnessScore': 0, 'level': 'Newcomer',
         'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
@@ -746,7 +783,8 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       if (user != null) await _ensureUserDoc(user);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sign in failed: $e')));
+      // don't surface the raw exception -- Firebase messages can echo the email address back
+      _toast('Sign in failed. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -760,8 +798,15 @@ class _LoginScreenState extends State<LoginScreen> {
       _toast('Please enter a valid email address.');
       return;
     }
-    if (password.length < 6) {
-      _toast('Password must be at least 6 characters.');
+    // 8 not Firebase's default 6. This is only the client-side check though -- the real
+    // enforcement has to be set in Firebase Console (Authentication > Settings > Password policy)
+    // or the API will still accept a 6-char password.
+    if (password.length < 8) {
+      _toast('Password must be at least 8 characters.');
+      return;
+    }
+    if (_isSignUp && !_ageConfirmed) {
+      _toast('Please confirm you are 13 or older to create an account.');
       return;
     }
     if (_isSignUp && name.isEmpty) {
@@ -808,12 +853,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
 String _friendlyAuthError(Object error) {
   // map Firebase error codes to plain-English messages
+  //
+  // deliberately does NOT confirm whether an email has an account. "No account found" vs
+  // "already registered" hands anyone a free list of who is using Kindred, so both paths now
+  // say the same thing. wrong-password and invalid-credential were already merged.
   if (error is FirebaseAuthException) {
       switch (error.code) {
-        case 'email-already-in-use': return 'That email is already registered. Try signing in instead.';
+        case 'email-already-in-use':
+        case 'account-exists-with-different-credential':
+          return 'Unable to create an account with that email. If you already have one, try signing in.';
         case 'invalid-email': return 'That email address doesn\'t look right.';
-        case 'weak-password': return 'Password must be at least 6 characters.';
-        case 'user-not-found': return 'No account found with that email.';
+        case 'weak-password': return 'Password must be at least 8 characters.';
+        case 'user-not-found':
         case 'wrong-password':
         case 'invalid-credential': return 'Incorrect email or password.';
         case 'too-many-requests': return 'Too many attempts. Please try again later.';
@@ -822,8 +873,8 @@ String _friendlyAuthError(Object error) {
         case 'operation-not-allowed': return 'Email sign-in isn\'t enabled yet. Please try Google instead.';
       }
     }
-    return 'Something went wrong: $error';
-  }
+    return 'Something went wrong. Please try again.';
+}
 
   @override
   Widget build(BuildContext context) {
@@ -847,7 +898,7 @@ String _friendlyAuthError(Object error) {
                 _StaggerIn(child: Column(children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(28),
-                    child: Image.asset('assets/logo_banner_login.png', width: 260, fit: BoxFit.contain),
+                    child: Semantics(label: 'Kindred', image: true, child: Image.asset('assets/logo_banner_login.png', width: 260, fit: BoxFit.contain)),
                   ),
                   const SizedBox(height: 26),
                   const Text('Neighbors helping neighbors.', style: TextStyle(fontSize: 15, color: Colors.white70)),
@@ -866,7 +917,7 @@ String _friendlyAuthError(Object error) {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Image.network('https://www.google.com/favicon.ico', height: 20, width: 20),
+                          Image.network('https://www.google.com/favicon.ico', height: 20, width: 20, excludeFromSemantics: true),
                           const SizedBox(width: 12),
                           Text('Continue with Google', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _isLoading ? const Color(0xFF94A3B8) : const Color(0xFF0F172A))),
                         ],
@@ -904,6 +955,8 @@ String _friendlyAuthError(Object error) {
                               _loginField(_emailController, 'Email', Icons.mail_outline_rounded, keyboardType: TextInputType.emailAddress),
                               const SizedBox(height: 12),
                               _passwordField(),
+                              const SizedBox(height: 14),
+                              _ageConsent(),
                             ])
                           : Column(key: const ValueKey('signin'), children: [
                               _loginField(_emailController, 'Email', Icons.mail_outline_rounded, keyboardType: TextInputType.emailAddress),
@@ -920,7 +973,23 @@ String _friendlyAuthError(Object error) {
                   ]),
                 )),
                 const SizedBox(height: 20),
-                const Text('By continuing you agree to our Terms of Service', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                Semantics(
+                  label: 'By continuing you agree to the Terms of Service and Privacy Policy',
+                  child: Text.rich(
+                    TextSpan(children: [
+                      const TextSpan(text: 'By continuing you agree to our ', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                      WidgetSpan(alignment: PlaceholderAlignment.middle, child: GestureDetector(
+                        onTap: () => _openExternal(context, 'https://kindred.jonahb344.workers.dev/terms'),
+                        child: Text('Terms of Service', style: TextStyle(fontSize: 11, color: Colors.white, decoration: TextDecoration.underline)),
+                      )),
+                      const TextSpan(text: ' and ', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                      WidgetSpan(alignment: PlaceholderAlignment.middle, child: GestureDetector(
+                        onTap: () => _openExternal(context, 'https://kindred.jonahb344.workers.dev/privacy'),
+                        child: Text('Privacy Policy', style: TextStyle(fontSize: 11, color: Colors.white, decoration: TextDecoration.underline)),
+                      )),
+                    ]),
+                  ),
+                ),
                 const SizedBox(height: 28),
               ],
             ),
@@ -975,6 +1044,57 @@ String _friendlyAuthError(Object error) {
     );
   }
 
+  Widget _ageConsent() {
+    return Semantics(
+      // the row below is one tap target, so give it a single readable label + checked state
+      label: 'I confirm I am 13 or older and agree to the Terms of Service and Privacy Policy',
+      checked: _ageConfirmed,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _ageConfirmed = !_ageConfirmed),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 20, height: 20,
+            margin: const EdgeInsets.only(top: 1),
+            decoration: BoxDecoration(
+              color: _ageConfirmed ? kAccent : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: _ageConfirmed ? kAccent : Colors.white38, width: 1.6),
+            ),
+            child: _ageConfirmed ? Icon(Icons.check_rounded, size: 15, color: kOnAccent) : null,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(text: _ageConfirmed ? 'I am 13 or older. ' : 'I confirm I am 13 or older. ', style: TextStyle(color: Colors.white70)),
+                WidgetSpan(alignment: PlaceholderAlignment.middle,
+                  child: GestureDetector(
+                    onTap: () => _openExternal(context, 'https://kindred.jonahb344.workers.dev/terms'),
+                    child: Text('Terms', style: TextStyle(color: kAccent, decoration: TextDecoration.underline)),
+                  )),
+                TextSpan(text: ' and ', style: TextStyle(color: Colors.white70)),
+                WidgetSpan(alignment: PlaceholderAlignment.middle,
+                  child: GestureDetector(
+                    onTap: () => _openExternal(context, 'https://kindred.jonahb344.workers.dev/privacy'),
+                    child: Text('Privacy Policy', style: TextStyle(color: kAccent, decoration: TextDecoration.underline)),
+                  )),
+                TextSpan(text: '.', style: TextStyle(color: Colors.white70)),
+              ]),
+              style: const TextStyle(fontSize: 12.5, height: 1.5),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  // small helper so the consent links and the footer links behave the same
+  void _openExternal(BuildContext context, String url) {
+    final uri = Uri.parse(url);
+    launchUrl(uri, mode: LaunchMode.externalApplication).catchError((_) => false);
+  }
+
   Widget _passwordField() {
     return TextField(
       controller: _passwordController,
@@ -985,6 +1105,7 @@ String _friendlyAuthError(Object error) {
       decoration: _loginDecoration('Password', Icons.lock_outline_rounded).copyWith(
         suffixIcon: IconButton(
           icon: Icon(_obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: kTextSecondary, size: 20),
+          tooltip: _obscure ? 'Show password' : 'Hide password',
           onPressed: () => setState(() => _obscure = !_obscure),
         ),
       ),
@@ -1188,7 +1309,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(children: [
-                  Image.asset(kImgCleanup, height: 150, width: double.infinity, fit: BoxFit.cover),
+                  Image.asset(kImgCleanup, height: 150, width: double.infinity, fit: BoxFit.cover, excludeFromSemantics: true),
                   Positioned.fill(child: Container(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(colors: [Colors.black.withValues(alpha: 0.05), Colors.black.withValues(alpha: 0.55)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
@@ -1351,7 +1472,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
               Container(width: 108, height: 108,
                 decoration: BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(30),
                     boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.35), blurRadius: 24, offset: const Offset(0, 10))]),
-                child: Icon(step['icon'] as IconData, color: Colors.white, size: 52),
+                child: Icon(step['icon'] as IconData, color: kOnAccent, size: 52),
               ),
               const SizedBox(height: 30),
               Text(step['title'] as String, textAlign: TextAlign.center,
@@ -1692,9 +1813,9 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: kBackground,
         elevation: 0,
         scrolledUnderElevation: 0,
-        title: Image.asset('assets/logo_banner.png', width: 150, fit: BoxFit.contain),
+        title: Semantics(label: 'Kindred', image: true, child: Image.asset('assets/logo_banner.png', width: 150, fit: BoxFit.contain)),
         centerTitle: true,
-        leading: IconButton(icon: Icon(Icons.logout_rounded, color: kTextSecondary), onPressed: _signOut),
+        leading: IconButton(icon: Icon(Icons.logout_rounded, color: kTextSecondary), tooltip: 'Sign out', onPressed: _signOut),
         actions: [
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
@@ -1897,11 +2018,11 @@ class HomeScreen extends StatelessWidget {
                           margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
                           child: Row(children: [
-                            CircleAvatar(radius: 18, backgroundImage: _avatarImage(f['photoUrl']), backgroundColor: kAccent,
-                                child: f['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null),
+                            _avatarLabel(_displayName(f['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(f['photoUrl']), backgroundColor: kAccent,
+                                child: f['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null)),
                             const SizedBox(width: 10),
                             Expanded(child: RichText(text: TextSpan(style: TextStyle(color: kTextSecondary, fontSize: 13), children: [
-                              TextSpan(text: f['name'] ?? 'Someone', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600)),
+                              TextSpan(text: _displayName(f['name']), style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600)),
                               TextSpan(text: ' helped with ${f['act']} ${f['emoji'] ?? ''}'),
                             ]))),
                             const SizedBox(width: 8),
@@ -2015,10 +2136,10 @@ class _HelpOthersScreenState extends State<HelpOthersScreen> with SingleTickerPr
           height: 52, padding: const EdgeInsets.symmetric(horizontal: 20),
           decoration: BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(16),
               boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, 8))]),
-          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.add_rounded, color: Colors.white, size: 22),
-            SizedBox(width: 8),
-            Text('Post Request', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.add_rounded, color: kOnAccent, size: 22),
+            const SizedBox(width: 8),
+            Text('Post Request', style: TextStyle(color: kOnAccent, fontWeight: FontWeight.w700, fontSize: 14)),
           ]),
         ),
       ),
@@ -2156,7 +2277,12 @@ class RequestCard extends StatelessWidget {
       await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
 
       // Notify volunteer
-      await _sendPushNotification(volunteerId, 'Your help was appreciated!', 'You earned +$_currentPoints points for helping with ${data['category']}.');
+      await _sendPushNotification(
+        volunteerId,
+        'Your help was appreciated!',
+        'You earned +$_currentPoints points for helping with ${data['category']}.',
+        contextId: docId,
+      );
     }
 
     if (context.mounted) {
@@ -2258,12 +2384,12 @@ class RequestCard extends StatelessWidget {
               Text(volunteerName, style: TextStyle(fontSize: 12, color: kTextSecondary)),
             const SizedBox(width: 6),
             if (isRequester && status != 'completed')
-              IconButton(icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20), onPressed: () => _deleteRequest(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+              IconButton(icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20), tooltip: 'Delete request', onPressed: () => _deleteRequest(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
             if (!isRequester && status == 'open')
-              IconButton(icon: Icon(Icons.flag_outlined, color: kTextSecondary, size: 18), onPressed: () => _reportUser(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+              IconButton(icon: Icon(Icons.flag_outlined, color: kTextSecondary, size: 18), tooltip: 'Report user', onPressed: () => _reportUser(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
             const SizedBox(width: 6),
             if (status == 'claimed' && (isRequester || isVolunteer))
-              IconButton(icon: Icon(Icons.chat_bubble_outline_rounded, color: kAccent, size: 20), onPressed: () => _openChat(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+              IconButton(icon: Icon(Icons.chat_bubble_outline_rounded, color: kAccent, size: 20), tooltip: 'Open chat', onPressed: () => _openChat(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
             const SizedBox(width: 6),
             if (status == 'open' && !isRequester)
               _KindredButton(label: 'Help', onPressed: () => _claimRequest(context), compact: true, fullWidth: false),
@@ -2337,8 +2463,25 @@ Future<Map<String, dynamic>> _callVerifyAct(String description, String? imageBas
   return data;
 }
 
-// fire-and-forget push — fails silently if target has no FCM token
-Future<void> _sendPushNotification(String targetUid, String title, String body) async {
+// Names live on the public profile doc, and older accounts fell back to their email
+// address as a display name before we noticed. Any value that looks like an email gets
+// swapped for a neutral label so it never renders on screen.
+String _displayName(Object? raw) {
+  final value = (raw ?? '').toString().trim();
+  if (value.isEmpty) return 'Neighbor';
+  if (value.contains('@') && value.contains('.')) return 'Neighbor';
+  return value;
+}
+
+// fire-and-forget push — fails silently if target has no FCM token.
+// contextId is the request (or chat) the message is about; the Worker checks that
+// we and the recipient are the two people on that request before it will send.
+Future<void> _sendPushNotification(
+  String targetUid,
+  String title,
+  String body, {
+  required String contextId,
+}) async {
   try {
     await http.post(
       Uri.parse('$kServerBaseUrl/push'),
@@ -2346,7 +2489,12 @@ Future<void> _sendPushNotification(String targetUid, String title, String body) 
         'Content-Type': 'application/json',
         ...await _authHeaders(),
       },
-      body: jsonEncode({'targetUid': targetUid, 'title': title, 'body': body}),
+      body: jsonEncode({
+        'targetUid': targetUid,
+        'title': title,
+        'body': body,
+        'contextId': contextId,
+      }),
     );
   } catch (_) {}
 }
@@ -2360,10 +2508,16 @@ Future<void> _completeClaim(Map<String, dynamic> data, String docId) async {
   final requesterId = data['requesterId'];
   final category = data['category'] ?? 'a request';
   if (requesterId != null && requesterId != user.uid) {
-    await _sendPushNotification(requesterId as String, 'Someone is coming to help!', '${user.displayName} claimed your $category request.');
+    await _sendPushNotification(
+      requesterId as String,
+      'Someone is coming to help!',
+      '${user.displayName} claimed your $category request.',
+      contextId: docId,
+    );
     try {
       await FirebaseFirestore.instance.collection('notifications').add({
         'toUid': requesterId,
+        'requestId': docId,
         'fromName': user.displayName,
         'title': 'Someone is coming to help!',
         'body': '${user.displayName} claimed your $category request.',
@@ -2610,12 +2764,18 @@ class _ChatScreenState extends State<ChatScreen> {
         final notifMessages = receiverDoc.data()?['notifMessages'] ?? true;
 
         if (notifMessages) {
-          await _sendPushNotification(widget.otherUid, user.displayName ?? 'Kindred', text);
+          await _sendPushNotification(
+            widget.otherUid,
+            user.displayName ?? 'Kindred',
+            text,
+            contextId: widget.chatId,
+          );
         }
 
         // Save in-app notification with read status
         await FirebaseFirestore.instance.collection('notifications').add({
           'toUid': widget.otherUid,
+          'requestId': widget.chatId,
           'fromName': user.displayName,
           'title': user.displayName ?? 'New Message',
           'body': text,
@@ -2685,9 +2845,15 @@ class _ChatScreenState extends State<ChatScreen> {
       else if (newScore >= helperThreshold) level = 'Helper';
       await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
 
-      await _sendPushNotification(requesterId, '${user.displayName} finished helping!', 'Your $category request was completed.');
+      await _sendPushNotification(
+        requesterId,
+        '${user.displayName} finished helping!',
+        'Your $category request was completed.',
+        contextId: requestSnap.id,
+      );
       await FirebaseFirestore.instance.collection('notifications').add({
         'toUid': requesterId,
+        'requestId': requestSnap.id,
         'fromName': user.displayName,
         'title': 'Request completed!',
         'body': '${user.displayName} finished helping with $category.',
@@ -2712,7 +2878,7 @@ class _ChatScreenState extends State<ChatScreen> {
       backgroundColor: kBackground,
       appBar: AppBar(
         backgroundColor: kCard, elevation: 0,
-        leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), onPressed: () => Navigator.pop(context)),
+        leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), tooltip: 'Back', onPressed: () => Navigator.pop(context)),
         title: GestureDetector(
           onTap: () => Navigator.push(context, _fadeSlideRoute(UserProfileScreen(uid: widget.otherUid, initialName: widget.otherName))),
           child: Text(widget.otherName, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700, fontSize: 17)),
@@ -2788,7 +2954,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     decoration: isMe
                         ? BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(18))
                         : BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(18), border: Border.all(color: kDivider)),
-                    child: Text(msg['text'] ?? '', style: TextStyle(color: isMe ? Colors.white : kTextPrimary, fontSize: 14)),
+                    child: Text(msg['text'] ?? '', style: TextStyle(color: isMe ? kOnAccent : kTextPrimary, fontSize: 14)),
                   ),
                 );
               },
@@ -2804,7 +2970,7 @@ class _ChatScreenState extends State<ChatScreen> {
               onSubmitted: (_) => _send(),
             )),
             const SizedBox(width: 8),
-            _Pressable(onTap: _send, pressedScale: 0.9, child: Container(width: 44, height: 44, decoration: BoxDecoration(gradient: kAccentGradient, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.4), blurRadius: 12, offset: const Offset(0, 4))]), child: const Icon(Icons.send_rounded, color: Colors.white, size: 20))),
+            _Pressable(onTap: _send, pressedScale: 0.9, child: Container(width: 44, height: 44, decoration: BoxDecoration(gradient: kAccentGradient, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.4), blurRadius: 12, offset: const Offset(0, 4))]), child: Icon(Icons.send_rounded, color: kOnAccent, size: 20))),
           ]),
         ),
       ]),
@@ -2889,7 +3055,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       backgroundColor: kBackground,
       appBar: AppBar(
         backgroundColor: kBackground, elevation: 0, scrolledUnderElevation: 0,
-        leading: widget.asTab ? null : IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), onPressed: () => Navigator.pop(context)),
+        leading: widget.asTab ? null : IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), tooltip: 'Back', onPressed: () => Navigator.pop(context)),
         title: Text('Messages', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800, fontSize: 22)),
       ),
       body: StreamBuilder<List<QueryDocumentSnapshot>>(
@@ -3267,10 +3433,10 @@ class LeaderboardScreen extends StatelessWidget {
                       ),
                       child: Row(children: [
                         SizedBox(width: 40, child: rank <= 3 ? _Medal(rank: rank, size: 34) : Text(rankLabel, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: rankColor))),
-                        CircleAvatar(radius: 18, backgroundImage: _avatarImage(data['photoUrl']), backgroundColor: kAccent, child: data['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null),
+                        _avatarLabel(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(data['photoUrl']), backgroundColor: kAccent, child: data['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null)),
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(data['username']?.isNotEmpty == true ? '@${data['username']}' : data['name'] ?? 'Kindred Member',
+                          Text(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']),
                               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: isMe ? kAccent : kTextPrimary)),
                           Text('${data['actsCompleted'] ?? 0} acts · ${data['level'] ?? 'Newcomer'}', style: TextStyle(fontSize: 12, color: kTextSecondary)),
                         ])),
@@ -3483,10 +3649,11 @@ class ProfileScreen extends StatelessWidget {
               actions: [
                 IconButton(
                   icon: const Icon(Icons.qr_code_rounded, color: Colors.white),
+                  tooltip: 'View profile',
                   onPressed: () => _showProfile(context, user?.uid ?? '', username.isNotEmpty ? username : user?.displayName ?? ''),
                 ),
-                IconButton(icon: const Icon(Icons.edit_rounded, color: Colors.white), onPressed: () => _showEditProfile(context, data ?? {}, level)),
-                IconButton(icon: const Icon(Icons.settings_rounded, color: Colors.white), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+                IconButton(icon: const Icon(Icons.edit_rounded, color: Colors.white), tooltip: 'Edit profile', onPressed: () => _showEditProfile(context, data ?? {}, level)),
+                IconButton(icon: const Icon(Icons.settings_rounded, color: Colors.white), tooltip: 'Settings', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
               ],
               flexibleSpace: FlexibleSpaceBar(
                 background: Container(
@@ -3717,8 +3884,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         builder: (context, snapshot) {
           final data = snapshot.data?.data() as Map<String, dynamic>?;
           final usernameField = data?['username'] as String?;
-          final nameField = data?['name'] as String?;
-          final displayName = (usernameField != null && usernameField.isNotEmpty ? usernameField : nameField) ?? widget.initialName ?? 'Kindred Member';
+          final nameField = _displayName(data?['name']);
+          final displayName = usernameField != null && usernameField.isNotEmpty ? usernameField : (nameField.isNotEmpty ? nameField : (widget.initialName ?? 'Kindred Member'));
           final score = data?['kindnessScore'] ?? 0;
           final level = data?['level'] ?? 'Newcomer';
           final acts = data?['actsCompleted'] ?? 0;
@@ -3733,7 +3900,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           return CustomScrollView(slivers: [
             SliverAppBar(
               expandedHeight: 220, pinned: true, backgroundColor: kBackground,
-              leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: Colors.white), onPressed: () => Navigator.pop(context)),
+              leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: Colors.white), tooltip: 'Back', onPressed: () => Navigator.pop(context)),
               actions: [
                 if (!isMe) ...[
                   IconButton(
@@ -3980,7 +4147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: kBackground,
       appBar: AppBar(
         backgroundColor: kBackground, elevation: 0, scrolledUnderElevation: 0,
-        leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), onPressed: () => Navigator.pop(context)),
+        leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), tooltip: 'Back', onPressed: () => Navigator.pop(context)),
         title: Text('Settings', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800, fontSize: 22)),
       ),
       body: ListView(
@@ -4177,10 +4344,10 @@ class _BlockedUsersSection extends StatelessWidget {
             builder: (context, uSnap) {
               final d = uSnap.data?.data() as Map<String, dynamic>?;
               final usernameField = d?['username'] as String?;
-              final nameField = d?['name'] as String?;
-              final name = (usernameField != null && usernameField.isNotEmpty ? '@$usernameField' : nameField) ?? 'Blocked user';
+              final nameField = _displayName(d?['name']);
+              final name = usernameField != null && usernameField.isNotEmpty ? '@$usernameField' : (nameField.isNotEmpty ? nameField : 'Blocked user');
               return ListTile(
-                leading: CircleAvatar(radius: 16, backgroundImage: _avatarImage(d?['photoUrl']), backgroundColor: kCardLight, child: d?['photoUrl'] == null ? const Icon(Icons.person, size: 16) : null),
+                leading: _avatarLabel(name, CircleAvatar(radius: 16, backgroundImage: _avatarImage(d?['photoUrl']), backgroundColor: kCardLight, child: d?['photoUrl'] == null ? const Icon(Icons.person, size: 16) : null)),
                 title: Text(name, style: TextStyle(color: kTextPrimary, fontSize: 14)),
                 trailing: TextButton(
                   onPressed: () async {
@@ -4263,25 +4430,66 @@ class _Pressable extends StatefulWidget {
 
 class _PressableState extends State<_Pressable> {
   bool _pressed = false;
+  bool _focused = false;
+
+  void _activate() {
+    if (widget.onTap == null) return;
+    _haptic();
+    widget.onTap!();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: widget.onTap,
-      onTapDown: (_) {
-        if (widget.onTap != null) _haptic();
-        setState(() => _pressed = true);
-      },
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      child: AnimatedScale(
-        scale: _pressed ? widget.pressedScale : 1.0,
-        duration: const Duration(milliseconds: 110),
-        curve: Curves.easeOut,
-        child: widget.child,
+    final enabled = widget.onTap != null;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        // GestureDetector on its own is invisible to the keyboard: you could not Tab to a help
+        // tile, a chat bubble or the Post Request button on the web build. These two shortcuts
+        // plus the focus ring below make every _Pressable reachable and operable.
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): _ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): _ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          _ActivateIntent: CallbackAction<_ActivateIntent>(onInvoke: (_) { _activate(); return null; }),
+        },
+        onShowFocusHighlight: (v) { if (_focused != v) setState(() => _focused = v); },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onTapDown: (_) {
+            if (widget.onTap != null) _haptic();
+            setState(() => _pressed = true);
+          },
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          child: AnimatedScale(
+            // no squash when the OS asks for reduced motion
+            scale: _pressed && !MediaQuery.disableAnimationsOf(context) ? widget.pressedScale : 1.0,
+            duration: const Duration(milliseconds: 110),
+            curve: Curves.easeOut,
+            // 2px transparent border keeps the layout identical whether or not focus is showing
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _focused ? kAccent : const Color(0x00000000),
+                  width: 2,
+                ),
+              ),
+              child: widget.child,
+            ),
+          ),
+        ),
       ),
     );
   }
+}
+
+class _ActivateIntent extends Intent {
+  const _ActivateIntent();
 }
 
 class _DescribeActSheet extends StatefulWidget {
@@ -4342,7 +4550,7 @@ class _DescribeActSheetState extends State<_DescribeActSheet> {
                     width: double.infinity, height: 130,
                     clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: kDivider)),
-                    child: Image.memory(previewImage, fit: BoxFit.cover),
+                    child: Semantics(label: 'Photo you selected', image: true, child: Image.memory(previewImage, fit: BoxFit.cover)),
                   ),
                   Positioned(top: 8, right: 8, child: _Pressable(
                     onTap: () => setState(() => _imageBytes = null),
@@ -4458,10 +4666,27 @@ class _KenBurnsImageState extends State<_KenBurnsImage>
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 24),
-  )..repeat(reverse: true);
+  );
   late final Animation<double> _scale = Tween<double>(begin: 1.0, end: 1.14).animate(_c);
   late final Animation<Offset> _drift =
       Tween<Offset>(begin: const Offset(-0.03, 0), end: const Offset(0.03, 0.03)).animate(_c);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncMotion();
+  }
+
+  // this one used to zoom and drift forever, on screen, regardless of settings. Now it checks
+  // the OS "reduce motion" preference: if that's on we hand back the still photo and stop
+  // animating. helps people with vestibular disorders and saves a bit of battery on top.
+  void _syncMotion() {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat(reverse: true);
+    }
+  }
 
   @override
   void dispose() {
@@ -4471,6 +4696,8 @@ class _KenBurnsImageState extends State<_KenBurnsImage>
 
   @override
   Widget build(BuildContext context) {
+    final still = Image.asset(widget.asset, fit: BoxFit.cover, excludeFromSemantics: true);
+    if (MediaQuery.disableAnimationsOf(context)) return ClipRect(child: still);
     return ClipRect(
       child: AnimatedBuilder(
         animation: _c,
@@ -4479,9 +4706,7 @@ class _KenBurnsImageState extends State<_KenBurnsImage>
           child: Transform.scale(
             scale: _scale.value,
             alignment: Alignment.center,
-            child: SizedBox.expand(
-              child: Image.asset(widget.asset, fit: BoxFit.cover),
-            ),
+            child: SizedBox.expand(child: still),
           ),
         ),
       ),
@@ -4503,7 +4728,18 @@ class _PulsingDotState extends State<_PulsingDot>
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1200),
-  )..repeat(reverse: true);
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // same deal as the Ken Burns photo: honour the OS reduce-motion setting
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat(reverse: true);
+    }
+  }
 
   @override
   void dispose() {
@@ -4702,7 +4938,7 @@ class _KindredButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final disabled = loading || onPressed == null;
-    final danger = destructive ? const Color(0xFFEF4444) : kAccent;
+    final danger = destructive ? kDangerFill : kAccent;
     final button = AnimatedOpacity(
       opacity: disabled ? 0.6 : 1.0,
       duration: const Duration(milliseconds: 150),
@@ -4711,14 +4947,14 @@ class _KindredButton extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: compact ? 20 : 24),
         decoration: BoxDecoration(
           gradient: destructive ? null : kAccentGradient,
-          color: destructive ? const Color(0xFFEF4444) : null,
+          color: destructive ? kDangerFill : null,
           borderRadius: BorderRadius.circular(compact ? 12 : 16),
           boxShadow: [BoxShadow(color: danger.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6))],
         ),
         child: Center(
           child: loading
-              ? SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-              : Text(label, style: TextStyle(color: Colors.white, fontSize: compact ? 14 : 16, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+              ? SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: destructive ? Colors.white : kOnAccent))
+              : Text(label, style: TextStyle(color: destructive ? Colors.white : kOnAccent, fontSize: compact ? 14 : 16, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
         ),
       ),
     );
