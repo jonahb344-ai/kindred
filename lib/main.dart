@@ -663,12 +663,175 @@ void _showReportSheet(BuildContext context, String reportedUid, String reportedN
   );
 }
 
+
 bool get _isWeekend {
   final day = DateTime.now().weekday;
   return day == DateTime.saturday || day == DateTime.sunday;
 }
 
 int get _currentPoints => _isWeekend ? pointsPerAct * 2 : pointsPerAct;
+
+// ─── UI HELPERS (skeletons, states) ──────────────────────────────────────────
+
+class _Shimmer extends StatefulWidget {
+  final Widget child;
+  const _Shimmer({required this.child});
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
+
+class _ShimmerState extends State<_Shimmer> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+  }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // same as the Ken Burns photo and the pulsing dot — if the OS asks for less
+    // motion, park the sweep at its dimmest instead of animating forever
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _ctrl.value = 0.0;
+      _ctrl.stop();
+    } else if (!_ctrl.isAnimating) {
+      _ctrl.repeat();
+    }
+  }
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, child) {
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (bounds) => LinearGradient(
+            begin: Alignment(-1 + _ctrl.value * 2, 0),
+            end: Alignment(1 + _ctrl.value * 2, 0),
+            colors: [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: _appIsDark ? 0.18 : 0.40), Colors.white.withValues(alpha: 0)],
+          ).createShader(bounds),
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
+class SkeletonBox extends StatelessWidget {
+  final double width;
+  final double height;
+  final double radius;
+  final EdgeInsets? margin;
+  const SkeletonBox({super.key, this.width = double.infinity, this.height = 16, this.radius = 10, this.margin});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      margin: margin,
+      decoration: BoxDecoration(
+        color: _appIsDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(radius),
+      ),
+    );
+  }
+}
+
+class SkeletonCard extends StatelessWidget {
+  const SkeletonCard({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          CircleAvatar(radius: 20, backgroundColor: _appIsDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SkeletonBox(height: 14, width: 120),
+            const SizedBox(height: 8),
+            SkeletonBox(height: 10, width: 80),
+          ])),
+        ]),
+        const SizedBox(height: 14),
+        SkeletonBox(height: 14),
+        const SizedBox(height: 8),
+        SkeletonBox(height: 14, width: MediaQuery.of(context).size.width * 0.7),
+        const SizedBox(height: 14),
+        Row(children: [
+          SkeletonBox(height: 34, width: 80, radius: 999),
+          const SizedBox(width: 10),
+          SkeletonBox(height: 34, width: 90, radius: 999),
+        ]),
+      ]),
+    );
+  }
+}
+
+class SkeletonList extends StatelessWidget {
+  final int count;
+  const SkeletonList({super.key, this.count = 6});
+  @override
+  Widget build(BuildContext context) {
+    return _Shimmer(
+      child: ListView.builder(
+        physics: const NeverScrollableScrollPhysics(),
+        shrinkWrap: true,
+        itemCount: count,
+        itemBuilder: (_, __) => const SkeletonCard(),
+      ),
+    );
+  }
+}
+
+class StateIllustration extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget? action;
+  final Color? iconColor;
+  const StateIllustration({super.key, required this.icon, required this.title, this.subtitle, this.action, this.iconColor});
+  @override
+  Widget build(BuildContext context) {
+    final c = iconColor ?? kAccent;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(colors: [c.withValues(alpha: _appIsDark ? 0.22 : 0.12), Colors.transparent]),
+          ),
+          child: Icon(icon, size: 56, color: c),
+        ),
+        const SizedBox(height: 20),
+        Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.2)),
+        if (subtitle != null) ...[
+          const SizedBox(height: 8),
+          Text(subtitle!, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: kTextSecondary, height: 1.5)),
+        ],
+        if (action != null) ...[
+          const SizedBox(height: 24),
+          action!,
+        ],
+      ]),
+    );
+  }
+}
 
 // ─── AUTH GATE ────────────────────────────────────────────────────────────────
 // decides what to show based on auth state — login, verify email, onboarding, or main app
@@ -682,7 +845,22 @@ class AuthGate extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(body: Center(child: CircularProgressIndicator(color: kAccent)));
+          return Scaffold(
+            body: Center(
+              child: _Shimmer(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SkeletonBox(width: 120, height: 120, radius: 999),
+                    const SizedBox(height: 20),
+                    SkeletonBox(width: 160, height: 14),
+                    const SizedBox(height: 10),
+                    SkeletonBox(width: 120, height: 12),
+                  ],
+                ),
+              ),
+            ),
+          );
         }
         if (snapshot.hasData) {
           final user = snapshot.data!;
@@ -692,7 +870,22 @@ class AuthGate extends StatelessWidget {
             future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
             builder: (context, userSnap) {
               if (userSnap.connectionState == ConnectionState.waiting) {
-                return Scaffold(body: Center(child: CircularProgressIndicator(color: kAccent)));
+                return Scaffold(
+                  body: Center(
+                    child: _Shimmer(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SkeletonBox(width: 120, height: 120, radius: 999),
+                          const SizedBox(height: 20),
+                          SkeletonBox(width: 160, height: 14),
+                          const SizedBox(height: 10),
+                          SkeletonBox(width: 120, height: 12),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
               }
               final data = userSnap.data?.data() as Map<String, dynamic>?;
               final setupDone = data?['setupDone'] ?? false;
@@ -708,6 +901,7 @@ class AuthGate extends StatelessWidget {
     );
   }
 }
+
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 
@@ -1407,11 +1601,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       const SizedBox(height: 8),
       Text('Welcome to your community', style: TextStyle(fontSize: 15, color: kTextSecondary)),
       const SizedBox(height: 32),
-      _FeatureRow(icon: Icons.shopping_cart_outlined, title: 'Request Help', desc: 'Ask neighbors for help with everyday tasks'),
+      _FeatureRow(icon: Icons.shopping_cart_outlined, title: 'Ask for help', desc: 'Ask neighbors for a small hand when you need one'),
       const SizedBox(height: 12),
-      _FeatureRow(icon: Icons.handshake_outlined, title: 'Volunteer', desc: 'Claim requests and earn kindness points'),
+      _FeatureRow(icon: Icons.handshake_outlined, title: 'Lend a hand', desc: 'Help nearby requests and earn kindness points'),
       const SizedBox(height: 12),
-      _FeatureRow(icon: Icons.star_outline_rounded, title: 'Level Up', desc: 'Unlock profile customization as you grow'),
+      _FeatureRow(icon: Icons.star_outline_rounded, title: 'Grow together', desc: 'Level up as you spread kindness'),
     ],
   );
 }
@@ -1643,7 +1837,7 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: kCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircularProgressIndicator(color: kAccent),
+          _Shimmer(child: SkeletonBox(width: 40, height: 40, radius: 999)),
           SizedBox(height: 16),
           Text('Verifying your photo...', style: TextStyle(color: kTextPrimary), textAlign: TextAlign.center),
         ]),
@@ -1692,7 +1886,7 @@ class HomeScreen extends StatelessWidget {
         if (context.mounted) {
           final bonus = _isWeekend ? ' (Weekend 2x bonus!)' : '';
           showDialog(context: context, builder: (_) => _KindredDialog(
-            title: 'Verified!',
+            title: 'Nice work!',
             content: '$reason\n\n+$pts points added$bonus',
             actionText: 'Awesome',
             onAction: () => Navigator.pop(context),
@@ -1701,7 +1895,7 @@ class HomeScreen extends StatelessWidget {
       } else {
         if (context.mounted) {
           showDialog(context: context, builder: (_) => _KindredDialog(
-            title: 'Not Verified',
+            title: 'Almost there',
             content: '$reason\n\nPlease take a clearer photo.',
             actionText: 'Try Again',
             onAction: () {
@@ -1714,7 +1908,7 @@ class HomeScreen extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Something didn’t go quite right. Please try again.')));
       }
     }
   }
@@ -1781,9 +1975,11 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: kCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircularProgressIndicator(color: kAccent),
+          _Shimmer(child: SkeletonBox(width: 36, height: 36, radius: 999)),
           const SizedBox(height: 16),
-          Text('Verifying your act...', style: TextStyle(color: kTextPrimary), textAlign: TextAlign.center),
+          Text('Taking a quick look...', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600, fontSize: 16), textAlign: TextAlign.center),
+          const SizedBox(height: 6),
+          Text('This usually takes just a moment', style: TextStyle(color: kTextSecondary, fontSize: 13), textAlign: TextAlign.center),
         ]),
       ),
     );
@@ -1808,8 +2004,8 @@ class HomeScreen extends StatelessWidget {
       } else {
         if (context.mounted) {
           showDialog(context: context, builder: (_) => _KindredDialog(
-            title: 'Not Verified',
-            content: '$reason\n\nPlease describe your act more clearly or add a clearer photo.',
+            title: 'Almost there',
+            content: '$reason\n\nTry adding a little more detail or a clearer photo - we want to make sure you get credit.',
             actionText: 'Try Again',
             onAction: () {
               Navigator.pop(context);
@@ -1821,7 +2017,7 @@ class HomeScreen extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Something didn’t go quite right. Please try again.')));
       }
     }
   }
@@ -2177,7 +2373,7 @@ class RequestFeedTab extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('requests').where('status', isEqualTo: 'open').orderBy('createdAt', descending: true).snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator(color: kAccent));
+        if (snapshot.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
         }
@@ -2206,7 +2402,7 @@ class MyRequestsTab extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('requests').where('requesterId', isEqualTo: uid).orderBy('createdAt', descending: true).snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator(color: kAccent));
+        if (snapshot.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const _EmptyState(icon: Icons.post_add_rounded, title: "No requests yet", subtitle: 'Tap Post Request to ask for help');
         }
@@ -2664,7 +2860,16 @@ void _showPostRequestSheet(BuildContext context) {
               if (pos != null) 'lng': pos.longitude,
             });
             await _notifyNearby(ref.id);
-            if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Request posted!'), backgroundColor: kAccentDark)); }
+            if (context.mounted) {
+              Navigator.pop(context);
+              Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => _SuccessState(
+                  title: 'Your request is out there',
+                  subtitle: 'Neighbors nearby have been pinged. If someone claims it, you’ll get a message right here.',
+                  onDone: () => Navigator.of(context).popUntil((r) => r.isFirst),
+                ),
+              ));
+            }
           },
         ),
       ])),
@@ -3086,7 +3291,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       body: StreamBuilder<List<QueryDocumentSnapshot>>(
         stream: uid == null ? const Stream.empty() : _chatStreams(uid),
         builder: (context, snap) {
-          if (!snap.hasData) return Center(child: CircularProgressIndicator(color: kAccent));
+          if (!snap.hasData) return Center(child: SkeletonList(count: 6));
           final docs = snap.data!;
           final chats = docs.where((d) {
             final s = (d.data() as Map<String, dynamic>)['status'] ?? '';
@@ -3098,7 +3303,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
               return (tb?.millisecondsSinceEpoch ?? 0).compareTo(ta?.millisecondsSinceEpoch ?? 0);
             });
           if (chats.isEmpty) {
-            return const _EmptyState(icon: Icons.forum_outlined, title: 'No conversations yet', subtitle: 'Chats open up when someone claims your request');
+            return _EmptyState(icon: Icons.forum_outlined, title: 'No conversations yet', subtitle: 'When someone claims your request, you’ll see the chat here.');
           }
           return FutureBuilder<DocumentSnapshot>(
             future: uid == null ? null : _blockedUsersRef(uid).get(),
@@ -3111,7 +3316,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                 return !blockedUsers.contains(otherUid);
               }).toList();
               if (visible.isEmpty) {
-                return const _EmptyState(icon: Icons.block_rounded, title: 'No conversations', subtitle: 'Chats with blocked users are hidden');
+                return _EmptyState(icon: Icons.block_rounded, title: 'No conversations here', subtitle: 'You’ve hidden conversations from blocked users.');
               }
               return ListView.builder(
                 padding: const EdgeInsets.all(16), itemCount: visible.length,
@@ -3428,7 +3633,7 @@ class LeaderboardScreen extends StatelessWidget {
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('users').orderBy('kindnessScore', descending: true).limit(50).snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData) return Center(child: CircularProgressIndicator(color: kAccent));
+              if (!snap.hasData) return Center(child: SkeletonList(count: 6));
               final docs = snap.data!.docs.where((d) => !blockedUsers.contains(d.id)).toList();
               return ListView.builder(
                 padding: const EdgeInsets.all(16), itemCount: docs.length + 1,
@@ -3865,7 +4070,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       return;
     }
     final confirm = await showDialog<bool>(context: context, builder: (_) => _KindredDialog(
-      title: 'Block this user?',
+      title: 'Block this person?',
       content: "They won't be able to contact you and their requests will be hidden from you.",
       actionText: 'Block',
       onAction: () => Navigator.pop(context, true),
@@ -4973,8 +5178,8 @@ class _KindredButton extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: destructive ? null : kAccentGradient,
           color: destructive ? kDangerFill : null,
-          borderRadius: BorderRadius.circular(compact ? 12 : 16),
-          boxShadow: [BoxShadow(color: danger.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6))],
+          borderRadius: BorderRadius.circular(compact ? 14 : 18),
+          boxShadow: [BoxShadow(color: danger.withValues(alpha: 0.2), blurRadius: 12, offset: const Offset(0, 4))],
         ),
         child: Center(
           child: loading
@@ -4992,21 +5197,73 @@ class _EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? subtitle;
-  const _EmptyState({required this.icon, required this.title, this.subtitle});
+  final Widget? action;
+  const _EmptyState({required this.icon, required this.title, this.subtitle, this.action});
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 88, height: 88, decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.08), shape: BoxShape.circle),
-            child: Icon(icon, color: kAccent, size: 38)),
-        const SizedBox(height: 18),
-        Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: kTextPrimary)),
-        if (subtitle != null) ...[
-          const SizedBox(height: 6),
-          Text(subtitle!, textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 13)),
-        ],
-      ]),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(colors: [kAccent.withValues(alpha: _appIsDark ? 0.22 : 0.12), Colors.transparent]),
+            ),
+            child: Icon(icon, color: kAccent, size: 48),
+          ),
+          const SizedBox(height: 20),
+          Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.25)),
+          if (subtitle != null) ...[
+            const SizedBox(height: 8),
+            Text(subtitle!, textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 15, height: 1.5)),
+          ],
+          if (action != null) ...[
+            const SizedBox(height: 20),
+            action!,
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
+
+class _SuccessState extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final VoidCallback? onDone;
+  const _SuccessState({required this.title, required this.subtitle, this.onDone});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBackground,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [const Color(0xFF10B981).withValues(alpha: _appIsDark ? 0.25 : 0.15), Colors.transparent]),
+                ),
+                child: const Icon(Icons.check_circle_rounded, size: 64, color: Color(0xFF10B981)),
+              ),
+              const SizedBox(height: 24),
+              Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.2)),
+              const SizedBox(height: 10),
+              Text(subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: kTextSecondary, height: 1.6)),
+              const SizedBox(height: 32),
+              if (onDone != null)
+                _KindredButton(label: 'Done', onPressed: onDone!, fullWidth: true),
+            ]),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -5062,12 +5319,14 @@ class _KindredDialog extends StatelessWidget {
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerRight,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (!destructive && cancelText != null)
-              _KindredButton(label: actionText, onPressed: onAction, destructive: destructive, compact: true, fullWidth: false),
-            if (cancelText != null)
+            if (destructive && cancelText != null)
               TextButton(onPressed: onCancel, child: Text(cancelText!, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
-            if (destructive)
-              _KindredButton(label: actionText, onPressed: onAction, destructive: destructive, compact: true, fullWidth: false),
+            const SizedBox(width: 8),
+            _KindredButton(label: actionText, onPressed: onAction, destructive: destructive, compact: true, fullWidth: false),
+            if (!destructive && cancelText != null) ...[
+              const SizedBox(width: 8),
+              TextButton(onPressed: onCancel, child: Text(cancelText!, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
+            ],
           ]),
         ),
       ],

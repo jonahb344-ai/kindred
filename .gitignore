@@ -58,3 +58,4 @@ android/key.properties
 
 # AI tooling / agent memory (kept local, not published)
 /AGENTS.md
+apks/
