@@ -2397,7 +2397,7 @@ class RequestFeedTab extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('requests').where('status', isEqualTo: 'open').orderBy('createdAt', descending: true).snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: SizedBox.shrink());
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
         }
@@ -2434,7 +2434,7 @@ class MyRequestsTab extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('requests').where('requesterId', isEqualTo: uid).orderBy('createdAt', descending: true).snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: SizedBox.shrink());
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const _EmptyState(icon: Icons.post_add_rounded, title: "No requests yet", subtitle: 'Tap Post Request to ask for help');
         }
@@ -3324,7 +3324,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
       body: StreamBuilder<List<QueryDocumentSnapshot>>(
         stream: uid == null ? const Stream.empty() : _chatStreams(uid),
         builder: (context, snap) {
-          if (!snap.hasData) return Center(child: SkeletonList(count: 6));
+          if (!snap.hasData) return const SizedBox.shrink();
           final docs = snap.data!;
           final chats = docs.where((d) {
             final s = (d.data() as Map<String, dynamic>)['status'] ?? '';
@@ -3665,7 +3665,7 @@ class LeaderboardScreen extends StatelessWidget {
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('users').orderBy('kindnessScore', descending: true).limit(50).snapshots(),
             builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) return Center(child: SkeletonList(count: 6));
+              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) return const SizedBox.shrink();
               if (!snap.hasData || snap.data!.docs.isEmpty) {
                 return const _EmptyState(icon: Icons.leaderboard_rounded, title: 'No rankings yet', subtitle: 'Kindness takes a little time. Be the first!');
               }
