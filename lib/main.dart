@@ -386,6 +386,29 @@ void _hapticHeavy() {
   } catch (_) {}
 }
 
+DateTime? _lastVerify;
+bool _canVerify() {
+  final now = DateTime.now();
+  final last = _lastVerify;
+  if (last == null || now.difference(last).inSeconds > 10) {
+    _lastVerify = now;
+    return true;
+  }
+  return false;
+}
+
+DateTime? _lastPost;
+bool _canPost() {
+  final now = DateTime.now();
+  final last = _lastPost;
+  if (last == null || now.difference(last).inSeconds > 5) {
+    _lastPost = now;
+    return true;
+  }
+  return false;
+}
+
+
 Future<void> _showConfetti(BuildContext context) async {
   // little celebration overlay after completing an act — people like confetti
   await Navigator.of(context).push(PageRouteBuilder<void>(
@@ -714,7 +737,7 @@ class _ShimmerState extends State<_Shimmer> with SingleTickerProviderStateMixin 
           shaderCallback: (bounds) => LinearGradient(
             begin: Alignment(-1 + _ctrl.value * 2, 0),
             end: Alignment(1 + _ctrl.value * 2, 0),
-            colors: [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: _appIsDark ? 0.18 : 0.40), Colors.white.withValues(alpha: 0)],
+            colors: [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: _appIsDark ? 0.10 : 0.20), Colors.white.withValues(alpha: 0)],
           ).createShader(bounds),
           child: child,
         );
@@ -1968,6 +1991,7 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _verifyDescription(BuildContext context, String description, {Uint8List? imageBytes}) async {
+    if (!_canVerify()) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Taking a break - try again in a moment."))); return; }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     showDialog(context: context, barrierDismissible: false,
@@ -2381,8 +2405,12 @@ class RequestFeedTab extends StatelessWidget {
         return FutureBuilder<DocumentSnapshot>(
           future: _blockedUsersRef(currentUid).get(),
           builder: (context, userSnap) {
+            if (userSnap.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
             final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
             final docs = snapshot.data!.docs.where((d) => !blockedUsers.contains((d.data() as Map)['requesterId'])).toList();
+            if (docs.isEmpty) {
+              return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
+            }
             return ListView.builder(
               padding: const EdgeInsets.all(16), itemCount: docs.length,
               itemBuilder: (context, i) => RequestCard(docId: docs[i].id, data: docs[i].data() as Map<String, dynamic>),
@@ -2850,6 +2878,7 @@ void _showPostRequestSheet(BuildContext context) {
             final user = FirebaseAuth.instance.currentUser;
             if (user == null) return;
             if (descController.text.trim().isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please add a description.'))); return; }
+            if (!_canPost()) { if (context.mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please wait a moment before posting again.'))); return; } }
             final pos = await _getCurrentPosition();
             if (pos != null) await _saveMyLocation(pos);
             final ref = await FirebaseFirestore.instance.collection('requests').add({
@@ -3629,11 +3658,15 @@ class LeaderboardScreen extends StatelessWidget {
       body: FutureBuilder<DocumentSnapshot>(
         future: currentUid == null ? null : _blockedUsersRef(currentUid).get(),
         builder: (context, userSnap) {
+          if (userSnap.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
           final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('users').orderBy('kindnessScore', descending: true).limit(50).snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData) return Center(child: SkeletonList(count: 6));
+              if (snap.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
+              if (!snap.hasData || snap.data!.docs.isEmpty) {
+                return const _EmptyState(icon: Icons.leaderboard_rounded, title: 'No rankings yet', subtitle: 'Kindness takes a little time. Be the first!');
+              }
               final docs = snap.data!.docs.where((d) => !blockedUsers.contains(d.id)).toList();
               return ListView.builder(
                 padding: const EdgeInsets.all(16), itemCount: docs.length + 1,
