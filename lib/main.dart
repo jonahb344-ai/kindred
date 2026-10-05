@@ -2405,8 +2405,7 @@ class RequestFeedTab extends StatelessWidget {
         return FutureBuilder<DocumentSnapshot>(
           future: _blockedUsersRef(currentUid).get(),
           builder: (context, userSnap) {
-            if (userSnap.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
-            final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
+            final blockedUsers = (userSnap.hasData && !userSnap.hasError) ? List<String>.from(userSnap.data?['blockedUsers'] ?? []) : <String>[];
             final docs = snapshot.data!.docs.where((d) => !blockedUsers.contains((d.data() as Map)['requesterId'])).toList();
             if (docs.isEmpty) {
               return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
@@ -3658,12 +3657,11 @@ class LeaderboardScreen extends StatelessWidget {
       body: FutureBuilder<DocumentSnapshot>(
         future: currentUid == null ? null : _blockedUsersRef(currentUid).get(),
         builder: (context, userSnap) {
-          if (userSnap.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
-          final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
+          final blockedUsers = (userSnap.hasData && !userSnap.hasError) ? List<String>.from(userSnap.data?['blockedUsers'] ?? []) : <String>[];
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('users').orderBy('kindnessScore', descending: true).limit(50).snapshots(),
             builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) return Center(child: SkeletonList(count: 6));
+              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) return Center(child: SkeletonList(count: 6));
               if (!snap.hasData || snap.data!.docs.isEmpty) {
                 return const _EmptyState(icon: Icons.leaderboard_rounded, title: 'No rankings yet', subtitle: 'Kindness takes a little time. Be the first!');
               }
