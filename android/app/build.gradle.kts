@@ -3,6 +3,9 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
+    // Required for the `kotlin { compilerOptions { } }` block below. Without it the
+    // Kotlin extension doesn't exist and the whole script fails to compile.
+    id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
@@ -23,8 +26,8 @@ android {
         // Fix: Enable core library desugaring
         isCoreLibraryDesugaringEnabled = true
 
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
@@ -57,7 +60,10 @@ android {
 
 kotlin {
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+        // Must match sourceCompatibility above or Kotlin fails the build with an
+        // "Inconsistent JVM-target compatibility" error. This block wants the
+        // JvmTarget enum (the older `android { kotlinOptions { } }` form took a String).
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
