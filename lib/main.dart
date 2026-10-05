@@ -2405,9 +2405,14 @@ class RequestFeedTab extends StatelessWidget {
         return FutureBuilder<DocumentSnapshot>(
           future: _blockedUsersRef(currentUid).get(),
           builder: (context, userSnap) {
+            final allDocs = snapshot.data!.docs;
             final blockedUsers = (userSnap.hasData && !userSnap.hasError) ? List<String>.from(userSnap.data?['blockedUsers'] ?? []) : <String>[];
-            final docs = snapshot.data!.docs.where((d) => !blockedUsers.contains((d.data() as Map)['requesterId'])).toList();
-            if (docs.isEmpty) {
+            final docs = allDocs.where((d) => !blockedUsers.contains((d.data() as Map)['requesterId'])).toList();
+            if (docs.isEmpty && allDocs.isNotEmpty && blockedUsers.isNotEmpty) {
+              // might be all blocked; still show empty state but don't block
+              return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
+            }
+            if (docs.isEmpty && allDocs.isEmpty) {
               return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
             }
             return ListView.builder(
@@ -3657,7 +3662,6 @@ class LeaderboardScreen extends StatelessWidget {
       body: FutureBuilder<DocumentSnapshot>(
         future: currentUid == null ? null : _blockedUsersRef(currentUid).get(),
         builder: (context, userSnap) {
-          final blockedUsers = (userSnap.hasData && !userSnap.hasError) ? List<String>.from(userSnap.data?['blockedUsers'] ?? []) : <String>[];
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('users').orderBy('kindnessScore', descending: true).limit(50).snapshots(),
             builder: (context, snap) {
@@ -3665,7 +3669,9 @@ class LeaderboardScreen extends StatelessWidget {
               if (!snap.hasData || snap.data!.docs.isEmpty) {
                 return const _EmptyState(icon: Icons.leaderboard_rounded, title: 'No rankings yet', subtitle: 'Kindness takes a little time. Be the first!');
               }
-              final docs = snap.data!.docs.where((d) => !blockedUsers.contains(d.id)).toList();
+              final allDocs = snap.data!.docs;
+              final blockedUsers = (userSnap.hasData && !userSnap.hasError) ? List<String>.from(userSnap.data?['blockedUsers'] ?? []) : <String>[];
+              final docs = allDocs.where((d) => !blockedUsers.contains(d.id)).toList();
               return ListView.builder(
                 padding: const EdgeInsets.all(16), itemCount: docs.length + 1,
                 itemBuilder: (context, index) {
