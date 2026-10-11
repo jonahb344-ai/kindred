@@ -1,0 +1,82 @@
+name: iOS Unsigned IPA
+
+# Builds an UNSIGNED .ipa on a cloud macOS runner (free for public repos).
+# The .ipa is then re-signed with a personal Apple ID and installed to a
+# physical iPhone via Sideloadly on the local Mac.
+#
+# Why CI: the local MacBook is a 2015 Air on macOS 13 (Ventura) and cannot run
+# an Xcode new enough to build iOS, and the Mac-only dependency_overrides in
+# pubspec.yaml (Firebase 10.x pins for Xcode 15.2) are not wanted here. This
+# workflow strips those overrides so pub resolves the normal, modern versions.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios.yml'
+      - 'lib/**'
+      - 'ios/**'
+      - 'assets/**'
+      - 'pubspec.yaml'
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcode-select -p
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Strip Mac-only dependency overrides
+        run: |
+          python3 - <<'PY'
+          import re, pathlib
+          p = pathlib.Path('pubspec.yaml')
+          s = p.read_text()
+          s = re.sub(r'(?ms)^dependency_overrides:.*?(?=^\S)', '', s)
+          p.write_text(s)
+          assert 'dependency_overrides' not in s, 'failed to strip overrides'
+          print(s)
+          PY
+
+      - name: Fresh pods
+        run: rm -rf ios/Pods ios/Podfile.lock
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Build iOS (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          set -eux
+          cd build/ios/iphoneos
+          rm -rf Payload
+          mkdir Payload
+          cp -R Runner.app Payload/
+          zip -qry Kindred-unsigned.ipa Payload
+          ls -la Kindred-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kindred-unsigned-ipa
+          path: build/ios/iphoneos/Kindred-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
