@@ -165,47 +165,49 @@ const List<String> kTileSubdomains = ['a', 'b', 'c', 'd'];
 // theme colors — dark mode is the default, light mode added later
 bool _appIsDark = true;
 
-Color get kBackground => _appIsDark ? const Color(0xFF0B1220) : const Color(0xFFF5F8FA);
-Color get kCard => _appIsDark ? const Color(0xFF141E30) : const Color(0xFFFFFFFF);
-Color get kCardLight => _appIsDark ? const Color(0xFF1E2B42) : const Color(0xFFEAF0F4);
-// light-mode steps were nudged one darker (teal-700, teal-800, blue-700, slate-600) after a
-// real contrast audit — the old teal-600 / blue-500 / slate-500 values sat at 3.5:1 on white
-// and failed WCAG AA for text. dark mode already passed everywhere so it stayed as-is.
-Color get kAccent => _appIsDark ? const Color(0xFF2DD4BF) : const Color(0xFF0F766E);
-Color get kAccentDark => _appIsDark ? const Color(0xFF14B8A6) : const Color(0xFF115E59);
-Color get kBadge => _appIsDark ? kAccent : const Color(0xFF1D4ED8);
-// (kBadge is blue in light mode — gold clashed with the cards, tried it, didn't like it)
-Color get kTextPrimary => _appIsDark ? const Color(0xFFE7EDF4) : const Color(0xFF0F172A);
-Color get kTextSecondary => _appIsDark ? const Color(0xFF94A3B8) : const Color(0xFF475569);
-Color get kDivider => _appIsDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+// ─── 2026-10-11 DESIGN REFRESH ───────────────────────────────────────────────
+// Blend of the three concepts the user picked: (1) crisp white / stone canvas
+// with heavily-rounded (16–24px) cards, (2) an Apple-Wallet-style minimal favour
+// stream, (3) warm cream chat panels with organic sage accents. Sage replaces the
+// old teal everywhere. Contrast re-checked: charcoal on stone ≈ 15:1, white on the
+// #527A75 button sage ≈ 4.8:1, #3F635E ≈ 6.7:1, sage icons clear 3:1.
+Color get kBackground => _appIsDark ? const Color(0xFF0F1418) : const Color(0xFFF4F6F6);
+Color get kCard => _appIsDark ? const Color(0xFF1B1F1E) : const Color(0xFFFFFFFF);
+Color get kCardLight => _appIsDark ? const Color(0xFF252B29) : const Color(0xFFEDF1F0);
+// warm cream surface for chat panels (concept 3)
+Color get kChatSurface => _appIsDark ? const Color(0xFF191E1D) : const Color(0xFFFBF6EF);
+Color get kAccent => _appIsDark ? const Color(0xFF7FB0A8) : const Color(0xFF63918B);
+Color get kAccentDark => _appIsDark ? const Color(0xFF63918B) : const Color(0xFF527A75);
+Color get kBadge => _appIsDark ? kAccent : const Color(0xFF527A75);
+Color get kTextPrimary => _appIsDark ? const Color(0xFFECEFEE) : const Color(0xFF1C1C1E);
+Color get kTextSecondary => _appIsDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+Color get kDivider => _appIsDark ? const Color(0xFF2C3332) : const Color(0xFFE4E7E7);
+
+// heavy rounding — the brief asks for 16–24px on every card
+const double kRadius = 22;
 
 LinearGradient get kAccentGradient => LinearGradient(
-  // light mode runs teal-800 -> teal-700 so WHITE text on the button clears 4.5:1. dark mode
-  // keeps the bright teal (it looks good on a navy bg) and leans on kOnAccent being dark
-  // instead of white, because white on #34D399 was only 1.9:1.
-  colors: _appIsDark
-      ? [const Color(0xFF14B8A6), const Color(0xFF34D399)]
-      : [const Color(0xFF115E59), const Color(0xFF0F766E)],
+  // deep sage pair so WHITE labels on primary buttons always clear 4.5:1
+  colors: [const Color(0xFF3F635E), const Color(0xFF527A75)],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );
 
-// foreground for anything sitting ON kAccentGradient. dark text on bright teal, white on the
-// darker light-mode stops.
-Color get kOnAccent => _appIsDark ? const Color(0xFF04211D) : Colors.white;
+// foreground for anything sitting ON kAccentGradient — always white on sage
+const Color kOnAccent = Colors.white;
 
 // destructive button fill. red-500 (#EF4444) only gave 3.8:1 against white label text.
 const Color kDangerFill = Color(0xFFDC2626);
 
 BoxShadow get kCardShadow => BoxShadow(
-  color: _appIsDark ? const Color(0x4D000000) : const Color(0x140F172A),
-  blurRadius: 24,
-  offset: const Offset(0, 8),
+  color: _appIsDark ? const Color(0x4D000000) : const Color(0x120F172A),
+  blurRadius: 28,
+  offset: const Offset(0, 10),
 );
 
 BoxShadow get kSoftShadow => BoxShadow(
   color: _appIsDark ? const Color(0x33000000) : const Color(0x0A0F172A),
-  blurRadius: 12,
+  blurRadius: 14,
   offset: const Offset(0, 4),
 );
 
@@ -218,7 +220,7 @@ Color _categoryColor(String cat) {
   final light = !_appIsDark;
   switch (cat) {
     case 'Grocery Run': return light ? const Color(0xFF15803D) : const Color(0xFF16A34A);
-    case 'Lawn Care': return light ? const Color(0xFF0F766E) : const Color(0xFF14B8A6);
+    case 'Lawn Care': return light ? const Color(0xFF527A75) : const Color(0xFF63918B);
     case 'Moving Help': return light ? const Color(0xFFB45309) : const Color(0xFFF59E0B);
     case 'Pet Care': return light ? const Color(0xFFDB2777) : const Color(0xFFEC4899);
     case 'Meal Prep': return light ? const Color(0xFFC2410C) : const Color(0xFFF97316);
@@ -349,9 +351,9 @@ class _KindredAppState extends State<KindredApp> {
     scaffoldBackgroundColor: kBackground,
     cardColor: kCard,
     colorScheme: const ColorScheme.dark(
-      primary: Color(0xFF2DD4BF),
-      secondary: Color(0xFF34D399),
-      surface: Color(0xFF141E30),
+      primary: Color(0xFF7FB0A8),
+      secondary: Color(0xFF63918B),
+      surface: Color(0xFF1B1F1E),
     ),
     fontFamily: 'Roboto',
     useMaterial3: true,
@@ -362,8 +364,8 @@ class _KindredAppState extends State<KindredApp> {
     scaffoldBackgroundColor: kBackground,
     cardColor: kCard,
     colorScheme: const ColorScheme.light(
-      primary: Color(0xFF0D9488),
-      secondary: Color(0xFF10B981),
+      primary: Color(0xFF527A75),
+      secondary: Color(0xFF63918B),
       surface: Colors.white,
     ),
     fontFamily: 'Roboto',
@@ -816,7 +818,7 @@ class _SplashScreen extends StatelessWidget {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0D9488), Color(0xFF134E4A), Color(0xFF0B1220)],
+            colors: [Color(0xFF63918B), Color(0xFF2F4F4A), Color(0xFF0F1418)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -1071,7 +1073,7 @@ String _friendlyAuthError(Object error) {
         Positioned.fill(child: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [const Color(0xFF0D9488).withValues(alpha: 0.92), const Color(0xFF134E4A).withValues(alpha: 0.85), const Color(0xFF0B1220).withValues(alpha: 0.95)],
+              colors: [const Color(0xFF63918B).withValues(alpha: 0.92), const Color(0xFF2F4F4A).withValues(alpha: 0.85), const Color(0xFF0F1418).withValues(alpha: 0.95)],
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
             ),
           ),
@@ -2053,13 +2055,12 @@ class HomeScreen extends StatelessWidget {
                     boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.35), blurRadius: 28, offset: const Offset(0, 12))],
                   ),
                   child: Stack(children: [
-                    Positioned.fill(child: _KenBurnsImage(asset: kImgVolunteers)),
                     Positioned.fill(child: Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: _appIsDark
-                              ? [kAccent.withValues(alpha: 0.92), const Color(0xFF0B1220).withValues(alpha: 0.85)]
-                              : [kAccent.withValues(alpha: 0.9), const Color(0xFF052e2b).withValues(alpha: 0.82)],
+                              ? [kAccent.withValues(alpha: 0.92), const Color(0xFF0F1418).withValues(alpha: 0.85)]
+                              : [kAccent.withValues(alpha: 0.9), const Color(0xFF2F4F4A).withValues(alpha: 0.82)],
                           begin: Alignment.topLeft, end: Alignment.bottomRight,
                         ),
                       ),
@@ -2316,16 +2317,17 @@ class _HelpOthersScreenState extends State<HelpOthersScreen> with SingleTickerPr
           Expanded(child: TabBarView(controller: _tabController, children: const [RequestFeedTab(), MyRequestsTab()])),
         ]);
       }),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: _Pressable(
         onTap: () => _showPostRequestSheet(context),
         child: Container(
-          height: 52, padding: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, 8))]),
+          height: 52, padding: const EdgeInsets.symmetric(horizontal: 22),
+          decoration: BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(18),
+              boxShadow: [BoxShadow(color: kAccentDark.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, 8))]),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.add_rounded, color: kOnAccent, size: 22),
             const SizedBox(width: 8),
-            Text('Post Request', style: TextStyle(color: kOnAccent, fontWeight: FontWeight.w700, fontSize: 14)),
+            Text('Ask for a Favor', style: TextStyle(color: kOnAccent, fontWeight: FontWeight.w700, fontSize: 14)),
           ]),
         ),
       ),
@@ -2539,13 +2541,13 @@ class RequestCard extends StatelessWidget {
     return _StaggerIn(
       key: ValueKey('card-$docId'),
       child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(18), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(kRadius), boxShadow: [kSoftShadow]),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Container(width: 46, height: 46, decoration: BoxDecoration(color: _categoryColor(category).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
+            Container(width: 46, height: 46, decoration: BoxDecoration(color: _categoryColor(category).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(16)),
                 child: Center(child: Icon(_categoryIcon(category), color: _categoryColor(category), size: 22))),
             const SizedBox(width: 12),
             Expanded(child: GestureDetector(
@@ -2555,7 +2557,7 @@ class RequestCard extends StatelessWidget {
                 }
               },
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(category, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: kTextPrimary)),
+                Text(category, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: kTextPrimary, letterSpacing: -0.2)),
                 Text('$requesterName · ${_timeAgo(createdAt)}', style: TextStyle(fontSize: 12, color: kTextSecondary)),
               ]),
             )),
@@ -2569,7 +2571,7 @@ class RequestCard extends StatelessWidget {
               ]),
             ),
           ]),
-          if (description.isNotEmpty) ...[SizedBox(height: 10), Text(description, style: TextStyle(fontSize: 13, color: kTextSecondary, height: 1.5))],
+          if (description.isNotEmpty) ...[SizedBox(height: 12), Text(description, style: TextStyle(fontSize: 14, color: kTextSecondary, height: 1.55))],
           const SizedBox(height: 14),
           Row(children: [
             _StatusBadge(status: status),
@@ -2589,9 +2591,9 @@ class RequestCard extends StatelessWidget {
               _KindredButton(label: 'Help', onPressed: () => _claimRequest(context), compact: true, fullWidth: false),
             if (status == 'claimed' && isRequester)
               _Pressable(onTap: () => _markComplete(context), child: Container(
-                height: 40, padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(color: const Color(0xFFF97316), borderRadius: BorderRadius.circular(12),
-                    boxShadow: [BoxShadow(color: const Color(0xFFF97316).withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))]),
+                height: 40, padding: const EdgeInsets.symmetric(horizontal: 18),
+                decoration: BoxDecoration(color: kAccentDark, borderRadius: BorderRadius.circular(14),
+                    boxShadow: [BoxShadow(color: kAccentDark.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))]),
                 child: const Center(child: Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13))),
               )),
           ]),
@@ -3082,9 +3084,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     return Scaffold(
-      backgroundColor: kBackground,
+      backgroundColor: kChatSurface,
       appBar: AppBar(
-        backgroundColor: kCard, elevation: 0,
+        backgroundColor: kChatSurface, elevation: 0,
         leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: kTextPrimary), tooltip: 'Back', onPressed: () => Navigator.pop(context)),
         title: GestureDetector(
           onTap: () => Navigator.push(context, _fadeSlideRoute(UserProfileScreen(uid: widget.otherUid, initialName: widget.otherName))),
@@ -3159,8 +3161,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
                     decoration: isMe
-                        ? BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(18))
-                        : BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(18), border: Border.all(color: kDivider)),
+                        ? BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(20))
+                        : BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(20), boxShadow: [kSoftShadow]),
                     child: Text(msg['text'] ?? '', style: TextStyle(color: isMe ? kOnAccent : kTextPrimary, fontSize: 14)),
                   ),
                 );
@@ -3169,7 +3171,7 @@ class _ChatScreenState extends State<ChatScreen> {
           },
         )),
         Container(
-          padding: EdgeInsets.all(12), color: kCard,
+          padding: EdgeInsets.all(12), color: kChatSurface,
           child: Row(children: [
             Expanded(child: TextField(
               controller: _controller, style: TextStyle(color: kTextPrimary),
@@ -3347,7 +3349,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
                               builder: (context, notifSnap) {
                                 final unread = notifSnap.data?.docs.where((d) => (d.data() as Map)['chatId'] == doc.id).length ?? 0;
                                 if (unread == 0) return const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 20);
-                                return _PulsingDot(color: const Color(0xFF2DD4BF), size: 12);
+                                return _PulsingDot(color: const Color(0xFF63918B), size: 12);
                               },
                             ),
                             const SizedBox(width: 2),
@@ -3525,7 +3527,7 @@ class _NearbyMapState extends State<_NearbyMap> {
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(14), border: Border.all(color: kDivider), boxShadow: [kCardShadow]),
                   child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const _PulsingDot(color: Color(0xFF34D399), size: 8),
+                    const _PulsingDot(color: Color(0xFF7FB0A8), size: 8),
                     const SizedBox(width: 8),
                     Text(snap.hasData ? '$nearbyCount open request${nearbyCount == 1 ? '' : 's'} nearby' : 'Loading...', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: kTextPrimary)),
                     const SizedBox(width: 6),
@@ -4925,7 +4927,7 @@ class _KenBurnsImageState extends State<_KenBurnsImage>
 class _PulsingDot extends StatefulWidget {
   final Color color;
   final double size;
-  const _PulsingDot({this.color = const Color(0xFF34D399), this.size = 10});
+  const _PulsingDot({this.color = const Color(0xFF7FB0A8), this.size = 10});
 
   @override
   State<_PulsingDot> createState() => _PulsingDotState();
