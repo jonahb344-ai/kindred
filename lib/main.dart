@@ -335,9 +335,11 @@ class _KindredAppState extends State<KindredApp> {
       theme: _lightTheme(),
       darkTheme: _darkTheme(),
       themeMode: _themeMode,
-      home: KeyedSubtree(
-        key: ValueKey(_themeMode),
-        child: const AuthGate(),
+      home: _StartupSplash(
+        child: KeyedSubtree(
+          key: ValueKey(_themeMode),
+          child: const AuthGate(),
+        ),
       ),
     );
   }
@@ -523,14 +525,14 @@ Future<void> _blockUser(BuildContext context, String uid, {String? name}) async 
   ));
   if (confirm != true) return;
   await _blockedUsersRef(current.uid).update({'blockedUsers': FieldValue.arrayUnion([uid])});
-  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User blocked.'), backgroundColor: kAccentDark));
+  if (context.mounted) _showMessageDialog(context, 'User blocked.');
 }
 
 Future<void> _unblockUser(BuildContext context, String uid) async {
   final current = FirebaseAuth.instance.currentUser;
   if (current == null) return;
   await _blockedUsersRef(current.uid).update({'blockedUsers': FieldValue.arrayRemove([uid])});
-  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User unblocked.'), backgroundColor: kAccentDark));
+  if (context.mounted) _showMessageDialog(context, 'User unblocked.');
 }
 
 Future<void> _deleteChat(BuildContext context, String requestId, String otherName) async {
@@ -551,9 +553,9 @@ Future<void> _deleteChat(BuildContext context, String requestId, String otherNam
     for (final m in msgs.docs) { await m.reference.delete(); }
     await FirebaseFirestore.instance.collection('chats').doc(requestId).delete();
     await FirebaseFirestore.instance.collection('requests').doc(requestId).delete();
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chat deleted.'), backgroundColor: kAccentDark));
+    if (context.mounted) _showMessageDialog(context, 'Chat deleted.');
   } catch (e) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting chat: $e')));
+    if (context.mounted) _showMessageDialog(context, 'Error deleting chat: $e');
   }
 }
 
@@ -632,12 +634,12 @@ Future<void> _submitReport(BuildContext context, String reportedUid, String repo
     },
   );
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(emailSent
+  _showMessageDialog(
+    context,
+    emailSent
         ? 'Report submitted. Moderators have been notified by email.'
-        : 'Report saved. Email notification failed to send.'),
-    backgroundColor: emailSent ? kAccentDark : Colors.orange,
-  ));
+        : 'Report saved. Email notification failed to send.',
+  );
 }
 
 void _showReportSheet(BuildContext context, String reportedUid, String reportedName, {String? chatId}) {
@@ -712,130 +714,28 @@ bool get _isWeekend {
 
 int get _currentPoints => _isWeekend ? pointsPerAct * 2 : pointsPerAct;
 
-// ─── UI HELPERS (skeletons, states) ──────────────────────────────────────────
+// ─── UI HELPERS ──────────────────────────────────────────────────────────────────
 
-class _Shimmer extends StatefulWidget {
-  final Widget child;
-  const _Shimmer({required this.child});
-  @override
-  State<_Shimmer> createState() => _ShimmerState();
-}
-
-class _ShimmerState extends State<_Shimmer> with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
-  }
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // same as the Ken Burns photo and the pulsing dot — if the OS asks for less
-    // motion, park the sweep at its dimmest instead of animating forever
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _ctrl.value = 0.0;
-      _ctrl.stop();
-    } else if (!_ctrl.isAnimating) {
-      _ctrl.repeat();
-    }
-  }
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (_, child) {
-        return ShaderMask(
-          blendMode: BlendMode.srcATop,
-          shaderCallback: (bounds) => LinearGradient(
-            begin: Alignment(-1 + _ctrl.value * 2, 0),
-            end: Alignment(1 + _ctrl.value * 2, 0),
-            colors: [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: _appIsDark ? 0.10 : 0.20), Colors.white.withValues(alpha: 0)],
-          ).createShader(bounds),
-          child: child,
-        );
-      },
-      child: widget.child,
-    );
-  }
-}
-
-class SkeletonBox extends StatelessWidget {
-  final double width;
-  final double height;
-  final double radius;
-  final EdgeInsets? margin;
-  const SkeletonBox({super.key, this.width = double.infinity, this.height = 16, this.radius = 10, this.margin});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: height,
-      margin: margin,
-      decoration: BoxDecoration(
-        color: _appIsDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(radius),
-      ),
-    );
-  }
-}
-
-class SkeletonCard extends StatelessWidget {
-  const SkeletonCard({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _appIsDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.02),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: kDivider.withValues(alpha: 0.5)),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          CircleAvatar(radius: 20, backgroundColor: _appIsDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06)),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SkeletonBox(height: 14, width: 120),
-            const SizedBox(height: 8),
-            SkeletonBox(height: 10, width: 80),
-          ])),
-        ]),
-        const SizedBox(height: 14),
-        SkeletonBox(height: 14),
-        const SizedBox(height: 8),
-        SkeletonBox(height: 14, width: MediaQuery.of(context).size.width * 0.7),
-        const SizedBox(height: 14),
-        Row(children: [
-          SkeletonBox(height: 34, width: 80, radius: 999),
-          const SizedBox(width: 10),
-          SkeletonBox(height: 34, width: 90, radius: 999),
-        ]),
-      ]),
-    );
-  }
-}
-
-class SkeletonList extends StatelessWidget {
-  final int count;
-  const SkeletonList({super.key, this.count = 6});
-  @override
-  Widget build(BuildContext context) {
-    return _Shimmer(
-      child: ListView.builder(
-        physics: const NeverScrollableScrollPhysics(),
-        shrinkWrap: true,
-        itemCount: count,
-        itemBuilder: (_, __) => const SkeletonCard(),
-      ),
-    );
-  }
+// every bottom snackbar was replaced with this dialog — no more Android-style
+// banners sliding up from the bottom of the screen
+void _showMessageDialog(BuildContext context, String message) {
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: kCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      content: Text(message, style: TextStyle(color: kTextPrimary, fontSize: 15, height: 1.4)),
+      actions: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          ]),
+        ),
+      ],
+    ),
+  );
 }
 
 class StateIllustration extends StatelessWidget {
@@ -874,6 +774,65 @@ class StateIllustration extends StatelessWidget {
   }
 }
 
+// ─── STARTUP SPLASH ───────────────────────────────────────────────────────────
+// shows the app logo for ~2 seconds on a cold start (when the app was fully
+// closed, not just backgrounded — a warm resume keeps the Flutter engine alive
+// so this never rebuilds)
+
+class _StartupSplash extends StatefulWidget {
+  final Widget child;
+  const _StartupSplash({required this.child});
+
+  @override
+  State<_StartupSplash> createState() => _StartupSplashState();
+}
+
+class _StartupSplashState extends State<_StartupSplash> {
+  bool _show = true;
+
+  @override
+  void initState() {
+    super.initState();
+    Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _show = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 350),
+      child: _show ? const _SplashScreen() : KeyedSubtree(key: const ValueKey('kindred'), child: widget.child),
+    );
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0D9488), Color(0xFF134E4A), Color(0xFF0B1220)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Center(
+          child: Semantics(
+            label: 'Kindred',
+            image: true,
+            child: Image.asset('assets/logo_banner_login.png', width: 260, fit: BoxFit.contain),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── AUTH GATE ────────────────────────────────────────────────────────────────
 // decides what to show based on auth state — login, verify email, onboarding, or main app
 
@@ -886,22 +845,7 @@ class AuthGate extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(
-            body: Center(
-              child: _Shimmer(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SkeletonBox(width: 120, height: 120, radius: 999),
-                    const SizedBox(height: 20),
-                    SkeletonBox(width: 160, height: 14),
-                    const SizedBox(height: 10),
-                    SkeletonBox(width: 120, height: 12),
-                  ],
-                ),
-              ),
-            ),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         if (snapshot.hasData) {
           final user = snapshot.data!;
@@ -911,22 +855,7 @@ class AuthGate extends StatelessWidget {
             future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
             builder: (context, userSnap) {
               if (userSnap.connectionState == ConnectionState.waiting) {
-                return Scaffold(
-                  body: Center(
-                    child: _Shimmer(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SkeletonBox(width: 120, height: 120, radius: 999),
-                          const SizedBox(height: 20),
-                          SkeletonBox(width: 160, height: 14),
-                          const SizedBox(height: 10),
-                          SkeletonBox(width: 120, height: 12),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
+                return const Scaffold(body: Center(child: CircularProgressIndicator()));
               }
               final data = userSnap.data?.data() as Map<String, dynamic>?;
               final setupDone = data?['setupDone'] ?? false;
@@ -1096,7 +1025,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    _showMessageDialog(context, message);
   }
 
   ActionCodeSettings _verificationSettings() => ActionCodeSettings(
@@ -1420,11 +1349,11 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         handleCodeInApp: false,
       ));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Verification email sent — check your inbox.')));
+        _showMessageDialog(context, 'Verification email sent — check your inbox.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send: $e')));
+        _showMessageDialog(context, 'Could not send: $e');
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -1440,7 +1369,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     if (fresh != null && fresh.emailVerified && mounted) {
       await _goNext(fresh);
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not verified yet. Open the email and tap the link.')));
+      _showMessageDialog(context, 'Not verified yet. Open the email and tap the link.');
     }
     if (mounted) setState(() => _checking = false);
   }
@@ -1878,7 +1807,7 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: kCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          _Shimmer(child: SkeletonBox(width: 40, height: 40, radius: 999)),
+          const CircularProgressIndicator(),
           SizedBox(height: 16),
           Text('Verifying your photo...', style: TextStyle(color: kTextPrimary), textAlign: TextAlign.center),
         ]),
@@ -1949,7 +1878,7 @@ class HomeScreen extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Something didn’t go quite right. Please try again.')));
+        _showMessageDialog(context, 'Something didn’t go quite right. Please try again.');
       }
     }
   }
@@ -2009,7 +1938,7 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _verifyDescription(BuildContext context, String description, {Uint8List? imageBytes}) async {
-    if (!_canVerify()) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Taking a break - try again in a moment."))); return; }
+    if (!_canVerify()) { if (context.mounted) _showMessageDialog(context, "Taking a break - try again in a moment."); return; }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     showDialog(context: context, barrierDismissible: false,
@@ -2017,7 +1946,7 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: kCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          _Shimmer(child: SkeletonBox(width: 36, height: 36, radius: 999)),
+          const CircularProgressIndicator(),
           const SizedBox(height: 16),
           Text('Taking a quick look...', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600, fontSize: 16), textAlign: TextAlign.center),
           const SizedBox(height: 6),
@@ -2059,7 +1988,7 @@ class HomeScreen extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Something didn’t go quite right. Please try again.')));
+        _showMessageDialog(context, 'Something didn’t go quite right. Please try again.');
       }
     }
   }
@@ -2248,10 +2177,7 @@ class HomeScreen extends StatelessWidget {
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   Text('Community', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kTextPrimary)),
                   GestureDetector(
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: const Text('Sharing comes with the full app release — Kindred is in beta!'),
-                      backgroundColor: kAccentDark,
-                    )),
+                    onTap: () => _showMessageDialog(context, 'Sharing comes with the full app release — Kindred is in beta!'),
                     child: Text('Share app', style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w600)),
                   ),
                 ]),
@@ -2494,7 +2420,7 @@ class RequestCard extends StatelessWidget {
 
     if (context.mounted) {
       _hapticHeavy();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Request claimed! They have been notified.'), backgroundColor: kAccentDark));
+      _showMessageDialog(context, 'Request claimed! They have been notified.');
     }
   }
 
@@ -2556,7 +2482,7 @@ class RequestCard extends StatelessWidget {
     if (context.mounted) {
       _hapticHeavy();
       await _showConfetti(context);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Marked as complete!'), backgroundColor: kAccentDark));
+      if (context.mounted) _showMessageDialog(context, 'Marked as complete!');
     }
   }
 
@@ -2899,8 +2825,8 @@ void _showPostRequestSheet(BuildContext context) {
           onPressed: () async {
             final user = FirebaseAuth.instance.currentUser;
             if (user == null) return;
-            if (descController.text.trim().isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please add a description.'))); return; }
-            if (!_canPost()) { if (context.mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please wait a moment before posting again.'))); return; } }
+            if (descController.text.trim().isEmpty) { _showMessageDialog(context, 'Please add a description.'); return; }
+            if (!_canPost()) { if (context.mounted) { _showMessageDialog(context, 'Please wait a moment before posting again.'); return; } }
             final pos = await _getCurrentPosition();
             if (pos != null) await _saveMyLocation(pos);
             final ref = await FirebaseFirestore.instance.collection('requests').add({
@@ -3008,7 +2934,7 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final myBlocked = await _getBlockedUsers(user.uid);
       if (myBlocked.contains(widget.otherUid)) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You blocked this user. Unblock them to send messages.')));
+        if (mounted) _showMessageDialog(context, 'You blocked this user. Unblock them to send messages.');
         return;
       }
       await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
@@ -3018,13 +2944,13 @@ class _ChatScreenState extends State<ChatScreen> {
       // The server turns this away when the other person has blocked us. Their block
       // list is private to them, so we can't check it up front like we used to.
       if (e.code == 'permission-denied') {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You can no longer message this user.')));
+        if (mounted) _showMessageDialog(context, 'You can no longer message this user.');
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message not sent. Check your connection and try again.')));
+        _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
       }
       return;
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message not sent. Check your connection and try again.')));
+      if (mounted) _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
       return;
     }
     _controller.clear();
@@ -3148,7 +3074,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _hapticHeavy();
     await _showConfetti(context);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Request marked done! You earned +$_currentPoints points.'), backgroundColor: kAccentDark));
+      _showMessageDialog(context, 'Request marked done! You earned +$_currentPoints points.');
     }
   }
 
@@ -3637,9 +3563,9 @@ class _NearbyMapState extends State<_NearbyMap> {
           onPressed: () async {
             final user = FirebaseAuth.instance.currentUser;
             if (user == null) return;
-            if (data['requesterId'] == user.uid) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("That's your own request!"))); return; }
+            if (data['requesterId'] == user.uid) { Navigator.pop(context); _showMessageDialog(context, "That's your own request!"); return; }
             await _completeClaim(data, docId);
-            if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('You claimed this request!'), backgroundColor: kAccentDark)); }
+            if (context.mounted) { Navigator.pop(context); _showMessageDialog(context, 'You claimed this request!'); }
           },
         ),
         const SizedBox(height: 8),
@@ -3895,10 +3821,7 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 24),
             _KindredButton(
               label: 'Share Profile',
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: const Text('Sharing comes with the full app release — Kindred is in beta!'),
-                backgroundColor: kAccentDark,
-              )),
+              onPressed: () => _showMessageDialog(context, 'Sharing comes with the full app release — Kindred is in beta!'),
             ),
             const SizedBox(height: 8),
           ]),
@@ -4137,7 +4060,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     await _blockedUsersRef(uid).update({'blockedUsers': FieldValue.arrayUnion([widget.uid])});
     if (mounted) {
       setState(() => _isBlocked = true);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User blocked.'), backgroundColor: kAccentDark));
+      _showMessageDialog(context, 'User blocked.');
     }
   }
 
@@ -4152,7 +4075,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     if (r1.docs.isNotEmpty) { chatId = r1.docs.first.id; }
     else if (r2.docs.isNotEmpty) { chatId = r2.docs.first.id; }
     if (chatId == null || !mounted) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('You can message $otherName after you connect through a request.')));
+      if (mounted) _showMessageDialog(context, 'You can message $otherName after you connect through a request.');
       return;
     }
     Navigator.push(context, _fadeSlideRoute(ChatScreen(chatId: chatId, otherName: otherName, otherUid: widget.uid)));
@@ -4538,7 +4461,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (await canLaunchUrl(uri)) {
                   await launchUrl(uri);
                 } else if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email app found. Report to jonahb344+kindred@gmail.com')));
+                  _showMessageDialog(context, 'No email app found. Report to jonahb344+kindred@gmail.com');
                 }
               },
             ),
@@ -4603,7 +4526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open link')));
+        _showMessageDialog(context, 'Could not open link');
       }
     }
   }
@@ -4638,7 +4561,7 @@ class _BlockedUsersSection extends StatelessWidget {
                   onPressed: () async {
                     if (uid == null) return;
                     await _blockedUsersRef(uid).update({'blockedUsers': FieldValue.arrayRemove([id])});
-                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User unblocked.'), backgroundColor: kAccentDark));
+if (context.mounted) _showMessageDialog(context, 'User unblocked.');
                   },
                   child: Text('Unblock', style: TextStyle(color: kAccent, fontWeight: FontWeight.w600)),
                 ),
