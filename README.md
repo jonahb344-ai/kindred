@@ -28,8 +28,18 @@ Download link: [kindred.apk](https://github.com/jonahb344-ai/kindred/releases/la
 - **Run**: Open your app drawer (Usually by swiping up from the bottom of your home screen, search "Kindred" and click on it. 
 If you want the link to the web app version you can find that [here](https://kindred.smartlights.lol)
 
+## Install on iPhone (iOS)
 
+The iOS build ships as an **unsigned `.ipa`**, so iOS can't install it directly — you sideload it with a free tool and a (free) Apple ID.
 
+1. Download `Kindred-v0.6.8-unsigned.ipa` from the [Releases page](https://github.com/jonahb344-ai/kindred/releases).
+2. Install [Sideloadly](https://sideloadly.io) on a Mac or Windows PC.
+3. Connect your iPhone with a USB cable and tap **Trust** on the phone if prompted.
+4. Open Sideloadly, drag the `.ipa` into it, enter your Apple ID, and click **Start**.
+5. On your iPhone, go to **Settings → General → VPN & Device Management** and tap **Trust** on the developer profile.
+6. Open **Kindred** from your home screen.
+
+> A free Apple ID signs the app for **7 days** — re-sideload (Sideloadly can auto-refresh while connected) to keep using it. A paid Apple Developer account gives a 1-year signature. iOS push notifications are not available in this unsigned build.
 
 ## License
 
