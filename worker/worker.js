@@ -133,26 +133,28 @@ const VERIFIED_PAGE = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Email verified — Kindred</title>
 <style>
-  body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f0fdf9;display:flex;align-items:center;justify-content:center;min-height:100vh;}
-  .card{background:#fff;border-radius:24px;padding:48px 36px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(13,148,136,0.2);text-align:center;}
-  .badge{width:80px;height:80px;border-radius:50%;background:#d1fae5;display:flex;align-items:center;justify-content:center;margin:0 auto 24px;font-size:38px;}
-  h1{color:#0f172a;font-size:26px;margin:0 0 12px;}
-  p{color:#475569;font-size:15px;line-height:1.7;margin:0 0 24px;}
-  .steps{text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;color:#334155;font-size:14px;line-height:2;}
-  .step{display:flex;align-items:center;gap:8px;}
-  .step b{color:#0f766e;}
+  :root{--bg:#f1f8f6;--card:#fff;--primary:#527a75;--text:#1c1c1e;--muted:#6b7280;}
+  body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:radial-gradient(circle at top,var(--bg),#fff);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+  .card{background:var(--card);border-radius:28px;padding:52px 40px 48px;max-width:420px;width:100%;box-shadow:0 24px 80px rgba(82,122,117,.15);text-align:center;border:1px solid rgba(82,122,117,.08);}
+  .badge{width:92px;height:92px;border-radius:50%;background:radial-gradient(circle at 40% 40%,rgba(127,176,168,.25),rgba(82,122,117,.12));display:flex;align-items:center;justify-content:center;margin:0 auto 28px;box-shadow:inset 0 1px 0 rgba(255,255,255,.8);}
+  .check{width:56px;height:56px;stroke:#527a75;stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+  h1{color:var(--text);font-size:28px;margin:0 0 10px;letter-spacing:-.3px;}
+  p{color:var(--muted);font-size:16px;line-height:1.8;margin:0 0 28px;}
+  .cta{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#3f635e,#527a75);color:#fff;padding:14px 24px;border-radius:999px;font-size:15px;font-weight:700;text-decoration:none;box-shadow:0 10px 40px -18px rgba(82,122,117,1);transition:all .15s ease;}
+  .cta:hover{transform:translateY(-1px);box-shadow:0 16px 44px -18px rgba(82,122,117,1);}
+  .cta:active{transform:translateY(0);}
+  .sub{font-size:13px;color:#94a3b8;margin-top:18px;}
 </style>
 </head>
 <body>
   <div class="card">
-    <div class="badge">&#10004;&#65039;</div>
-    <h1>You&#39;re verified!</h1>
-    <p>Your email is confirmed. You&#39;re officially part of the Kindred neighborhood.</p>
-    <div class="steps">
-      <div class="step"><b>1</b> Open the Kindred app</div>
-      <div class="step"><b>2</b> Tap <b>&quot;I&#39;ve verified — Continue&quot;</b></div>
+    <div class="badge">
+      <svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
     </div>
-    <p style="font-size:13px;color:#94a3b8;margin-top:24px;">Then start helping your neighbors! &#128591;</p>
+    <h1>Email verified</h1>
+    <p>Your email is confirmed. You're officially part of the Kindred neighborhood.</p>
+    <a class="cta" href="kindred://verified">Return to Kindred</a>
+    <p class="sub">If the app doesn't open automatically, just tap the button above.</p>
   </div>
 </body>
 </html>`;
