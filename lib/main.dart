@@ -927,7 +927,8 @@ class _LoginScreenState extends State<LoginScreen> {
     String? token;
     if (!kIsWeb) {
       try {
-        token = await FirebaseMessaging.instance.getToken();
+        // On some iOS dev builds (free Apple ID) this can throw; be defensive.
+        token = await FirebaseMessaging.instance.getToken().timeout(const Duration(seconds: 3));
       } catch (_) {
         token = null;
       }
