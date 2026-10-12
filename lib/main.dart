@@ -178,7 +178,7 @@ Color get kCardLight => _appIsDark ? const Color(0xFF252B29) : const Color(0xFFE
 Color get kChatSurface => _appIsDark ? const Color(0xFF191E1D) : const Color(0xFFFBF6EF);
 Color get kAccent => _appIsDark ? const Color(0xFF7FB0A8) : const Color(0xFF63918B);
 Color get kAccentDark => _appIsDark ? const Color(0xFF63918B) : const Color(0xFF527A75);
-Color get kBadge => _appIsDark ? kAccent : const Color(0xFF527A75);
+Color get kBadge => _appIsDark ? kAccent : const Color(0xFF4A625F);
 Color get kTextPrimary => _appIsDark ? const Color(0xFFECEFEE) : const Color(0xFF1C1C1E);
 Color get kTextSecondary => _appIsDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
 Color get kDivider => _appIsDark ? const Color(0xFF2C3332) : const Color(0xFFE4E7E7);
@@ -2112,15 +2112,15 @@ class HomeScreen extends StatelessWidget {
                   Container(
                     width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.1),
+                      color: kAccent.withValues(alpha: _appIsDark ? 0.12 : 0.08),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                      border: Border.all(color: kAccent.withValues(alpha: _appIsDark ? 0.25 : 0.18)),
                     ),
                     child: Row(children: [
-                      const Icon(Icons.bolt_rounded, color: Colors.orange, size: 20),
+                      Icon(Icons.bolt_rounded, color: kAccent, size: 20),
                       const SizedBox(width: 10),
-                      const Expanded(child: Text('Weekend bonus active — earn 2x points today!',
-                          style: TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.w600))),
+                      Expanded(child: Text('Weekend bonus active — earn 2x points today!',
+                          style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w700))),
                     ]),
                   ),
                 ],
@@ -2158,12 +2158,14 @@ class HomeScreen extends StatelessWidget {
                   child: Container(
                     width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
-                      border: Border.all(color: kBadge.withValues(alpha: 0.5)),
+                      color: _appIsDark ? kCard : const Color(0xFFF7FAF9),
                       borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: kAccent.withValues(alpha: _appIsDark ? 0.35 : 0.25)),
+                      boxShadow: [kSoftShadow],
                     ),
                     child: Row(children: [
-                      Container(width: 38, height: 38, decoration: BoxDecoration(color: kBadge.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
-                          child: Icon(Icons.edit_note_rounded, color: kBadge, size: 20)),
+                      Container(width: 38, height: 38, decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                          child: Icon(Icons.edit_note_rounded, color: kAccent, size: 20)),
                       const SizedBox(width: 12),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text('Describe your own act', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: kTextPrimary)),
@@ -5452,7 +5454,11 @@ class _HelpCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _Pressable(onTap: onTap, child: Container(
-      decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(18), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
+      decoration: BoxDecoration(
+        color: _appIsDark ? kCard : const Color(0xFFF7FAF9),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [kSoftShadow],
+      ),
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Container(width: 50, height: 50, decoration: BoxDecoration(color: tint.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(16)),
             child: Center(child: Icon(icon, color: tint, size: 25))),
