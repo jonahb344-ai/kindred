@@ -352,12 +352,16 @@ class _KindredAppState extends State<KindredApp> {
       theme: _lightTheme(),
       darkTheme: _darkTheme(),
       themeMode: _themeMode,
-      home: _StartupSplash(
-        child: KeyedSubtree(
-          key: ValueKey(_themeMode),
-          child: const AuthGate(),
-        ),
-      ),
+      home: kIsWeb
+          // no cold-start logo splash on the web build — it's only wanted on the
+          // real (Android/iOS) app
+          ? KeyedSubtree(key: ValueKey(_themeMode), child: const AuthGate())
+          : _StartupSplash(
+              child: KeyedSubtree(
+                key: ValueKey(_themeMode),
+                child: const AuthGate(),
+              ),
+            ),
     );
   }
 
@@ -987,14 +991,7 @@ class StateIllustration extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [c.withValues(alpha: _appIsDark ? 0.22 : 0.12), Colors.transparent]),
-          ),
-          child: Icon(icon, size: 56, color: c),
-        ),
+        _HaloIcon(icon: icon, color: c, iconSize: 56),
         const SizedBox(height: 20),
         Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.2)),
         if (subtitle != null) ...[
@@ -1006,6 +1003,30 @@ class StateIllustration extends StatelessWidget {
           action!,
         ],
       ]),
+    );
+  }
+}
+
+// Icon badge for empty / success states. Light mode keeps the soft radial halo,
+// but dark mode uses a FLAT disc (no radial falloff) so the icon stops reading
+// as a glowing neon blob on the near-black canvas.
+class _HaloIcon extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final double iconSize;
+  final double pad;
+  const _HaloIcon({required this.icon, required this.color, this.iconSize = 48, this.pad = 20});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(pad),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _appIsDark ? kCardLight : null,
+        gradient: _appIsDark ? null : RadialGradient(colors: [color.withValues(alpha: 0.12), Colors.transparent]),
+      ),
+      child: Icon(icon, color: color, size: iconSize),
     );
   }
 }
@@ -5400,14 +5421,7 @@ class _EmptyState extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(colors: [kAccent.withValues(alpha: _appIsDark ? 0.22 : 0.12), Colors.transparent]),
-            ),
-            child: Icon(icon, color: kAccent, size: 48),
-          ),
+          _HaloIcon(icon: icon, color: kAccent, iconSize: 48),
           const SizedBox(height: 20),
           Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.25)),
           if (subtitle != null) ...[
@@ -5439,14 +5453,7 @@ class _SuccessState extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(colors: [const Color(0xFF10B981).withValues(alpha: _appIsDark ? 0.25 : 0.15), Colors.transparent]),
-                ),
-                child: const Icon(Icons.check_circle_rounded, size: 64, color: Color(0xFF10B981)),
-              ),
+              const _HaloIcon(icon: Icons.check_circle_rounded, color: Color(0xFF10B981), iconSize: 64, pad: 24),
               const SizedBox(height: 24),
               Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.2)),
               const SizedBox(height: 10),
