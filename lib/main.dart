@@ -187,8 +187,12 @@ Color get kDivider => _appIsDark ? const Color(0xFF2C3332) : const Color(0xFFE4E
 const double kRadius = 22;
 
 LinearGradient get kAccentGradient => LinearGradient(
-  // deep sage pair so WHITE labels on primary buttons always clear 4.5:1
-  colors: [const Color(0xFF3F635E), const Color(0xFF527A75)],
+  // deep sage pair so WHITE labels on primary buttons always clear 4.5:1.
+  // Dark mode uses a duskier, lower-chroma pair so buttons read as calm sage
+  // instead of glowing neon against the near-black canvas.
+  colors: _appIsDark
+      ? const [Color(0xFF34524D), Color(0xFF40615B)]
+      : const [Color(0xFF3F635E), Color(0xFF527A75)],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );
@@ -198,6 +202,17 @@ const Color kOnAccent = Colors.white;
 
 // destructive button fill. red-500 (#EF4444) only gave 3.8:1 against white label text.
 const Color kDangerFill = Color(0xFFDC2626);
+
+// Elevation for filled buttons. Light mode keeps a soft, low-opacity halo, but
+// dark mode gets a quiet NEUTRAL shadow — the old sage-tinted glow (kAccent at
+// 20–40% alpha) was what made every button look neon on the dark canvas.
+List<BoxShadow> get kButtonShadow => [
+  BoxShadow(
+    color: _appIsDark ? const Color(0x59000000) : const Color(0x1F0F172A),
+    blurRadius: _appIsDark ? 12 : 16,
+    offset: const Offset(0, 4),
+  ),
+];
 
 BoxShadow get kCardShadow => BoxShadow(
   color: _appIsDark ? const Color(0x4D000000) : const Color(0x120F172A),
@@ -654,8 +669,8 @@ void _showReportSheet(BuildContext context, String reportedUid, String reportedN
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => StatefulBuilder(builder: (context, setModalState) => Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+    builder: (_) => StatefulBuilder(builder: (sheetContext, setModalState) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
       child: Container(
         decoration: BoxDecoration(color: kCard, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
@@ -698,7 +713,7 @@ void _showReportSheet(BuildContext context, String reportedUid, String reportedN
             label: 'Submit Report',
             destructive: true,
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(sheetContext);
               await _submitReport(context, reportedUid, reportedName, selectedReason, detailsController.text.trim(), chatId: chatId, alsoBlock: alsoBlock);
             },
           ),
@@ -716,28 +731,247 @@ bool get _isWeekend {
 
 int get _currentPoints => _isWeekend ? pointsPerAct * 2 : pointsPerAct;
 
+String _themeLabel(ThemeMode m) => switch (m) {
+  ThemeMode.system => 'System',
+  ThemeMode.light => 'Light',
+  ThemeMode.dark => 'Dark',
+};
+
+// ── Shared user-stats mutators ───────────────────────────────────────────────
+// Top-level so both HomeScreen (self-logged acts) and the completion flows
+// (RequestCard / chat) can advance the same user's streak and badges.
+Future<void> _updateStreak(String uid) async {
+  final doc = FirebaseFirestore.instance.collection('users').doc(uid);
+  final snap = await doc.get();
+  final data = snap.data() ?? {};
+  final lastActDate = (data['lastActDate'] as Timestamp?)?.toDate();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  int streak = (data['streak'] ?? 0) as int;
+  if (lastActDate == null) {
+    streak = 1;
+  } else {
+    final lastDay = DateTime(lastActDate.year, lastActDate.month, lastActDate.day);
+    final diff = today.difference(lastDay).inDays;
+    if (diff == 0) return; // Already logged today, don't update
+    if (diff == 1) streak++;
+    else streak = 1; // Reset streak if more than 1 day gap
+  }
+  await doc.update({'streak': streak, 'lastActDate': FieldValue.serverTimestamp()});
+}
+
+Future<void> _checkBadges(String uid, int newScore, int acts) async {
+  final doc = FirebaseFirestore.instance.collection('users').doc(uid);
+  final snap = await doc.get();
+  final badges = List<String>.from(snap.data()?['badges'] ?? []);
+  final newBadges = <String>[];
+  if (acts >= 1 && !badges.contains('first_act')) newBadges.add('first_act');
+  if (acts >= 10 && !badges.contains('10_acts')) newBadges.add('10_acts');
+  if (acts >= 50 && !badges.contains('50_acts')) newBadges.add('50_acts');
+  if (newScore >= helperThreshold && !badges.contains('helper')) newBadges.add('helper');
+  if (newScore >= championThreshold && !badges.contains('champion')) newBadges.add('champion');
+  if (newScore >= legendThreshold && !badges.contains('legend')) newBadges.add('legend');
+  if (newBadges.isNotEmpty) await doc.update({'badges': FieldValue.arrayUnion(newBadges)});
+}
+
 // ─── UI HELPERS ──────────────────────────────────────────────────────────────────
 
 // every bottom snackbar was replaced with this dialog — no more Android-style
-// banners sliding up from the bottom of the screen
+// banners sliding up from the bottom. Uses the shared iOS-style shell (rounded
+// card + a single full-width pill button) instead of a Material AlertDialog.
 void _showMessageDialog(BuildContext context, String message) {
   showDialog<void>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: kCard,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      content: Text(message, style: TextStyle(color: kTextPrimary, fontSize: 15, height: 1.4)),
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    builder: (ctx) => _KindredDialogShell(
+      content: Text(message, textAlign: TextAlign.center),
       actions: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerRight,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
-          ]),
-        ),
+        _KindredButton(label: 'OK', onPressed: () => Navigator.pop(ctx)),
       ],
     ),
   );
+}
+
+// Blocking spinner with the same shell styling. Callers still pop it with
+// Navigator.pop(context) when their async work resolves.
+void _showLoadingDialog(BuildContext context, String title, [String? subtitle]) {
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    barrierColor: Colors.black.withValues(alpha: 0.5),
+    builder: (_) => _KindredDialogShell(
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(height: 4),
+        SizedBox(width: 34, height: 34, child: CircularProgressIndicator(strokeWidth: 3, color: kAccent)),
+        const SizedBox(height: 18),
+        Text(title, textAlign: TextAlign.center, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+        if (subtitle != null) ...[
+          const SizedBox(height: 6),
+          Text(subtitle, textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 13, height: 1.4)),
+        ],
+        const SizedBox(height: 4),
+      ]),
+      actions: const [],
+    ),
+  );
+}
+
+// "Send a thank-you note" style prompt. Returns the trimmed text, or null if the
+// dialog was dismissed (a blank string means the user chose to skip).
+Future<String?> _showNoteDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String hint,
+  required String actionLabel,
+}) {
+  final controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    builder: (ctx) => _KindredDialogShell(
+      title: title,
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(message, textAlign: TextAlign.center),
+        const SizedBox(height: 14),
+        TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+          style: TextStyle(color: kTextPrimary),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: kTextSecondary),
+            filled: true,
+            fillColor: kCardLight,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+          ),
+        ),
+      ]),
+      actions: [
+        _KindredButton(label: actionLabel, onPressed: () => Navigator.pop(ctx, controller.text.trim())),
+        const SizedBox(height: 10),
+        _GhostButton(label: 'Skip', onPressed: () => Navigator.pop(ctx, '')),
+      ],
+    ),
+  );
+}
+
+// iOS-style action sheet: a rounded card pinned to the bottom with a grabber
+// and full-width tappable rows. Replaces Material PopupMenu / DropdownButton
+// popups. Resolves to the tapped row's value, or null if dismissed.
+Future<T?> _showActionSheet<T>(BuildContext context, {String? title, required List<_SheetAction<T>> actions}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.4),
+    builder: (sheetCtx) => SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        child: Container(
+          decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(24), boxShadow: [kCardShadow]),
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Center(child: Container(width: 38, height: 5, margin: const EdgeInsets.only(bottom: 6), decoration: BoxDecoration(color: kDivider, borderRadius: BorderRadius.circular(3)))),
+            if (title != null)
+              Padding(padding: const EdgeInsets.fromLTRB(8, 4, 8, 8), child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600, fontSize: 13))),
+            ...actions.map((a) => _Pressable(
+              onTap: () => Navigator.pop(sheetCtx, a.value),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+                child: Row(children: [
+                  Icon(a.icon, color: a.destructive ? const Color(0xFFEF4444) : kAccent, size: 21),
+                  const SizedBox(width: 14),
+                  Expanded(child: Text(a.label, style: TextStyle(color: a.destructive ? const Color(0xFFEF4444) : kTextPrimary, fontSize: 15.5, fontWeight: FontWeight.w600))),
+                  if (a.selected) Icon(Icons.check_rounded, color: kAccent, size: 20),
+                ]),
+              ),
+            )),
+          ]),
+        ),
+      ),
+    ),
+  );
+}
+
+class _SheetAction<T> {
+  final IconData icon;
+  final String label;
+  final T value;
+  final bool destructive;
+  final bool selected;
+  const _SheetAction({required this.icon, required this.label, required this.value, this.destructive = false, this.selected = false});
+}
+
+// ── Shared dialog shell ──────────────────────────────────────────────────────
+// Flat, generously-rounded card with stacked full-width pill buttons. This is
+// the single look used by every popup in the app (alerts, loading, prompts) so
+// nothing falls back to the default square Android AlertDialog.
+class _KindredDialogShell extends StatelessWidget {
+  final String? title;
+  final Widget content;
+  final List<Widget> actions;
+  const _KindredDialogShell({required this.content, required this.actions, this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Container(
+          decoration: BoxDecoration(
+            color: kCard,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [kCardShadow],
+          ),
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
+          child: DefaultTextStyle.merge(
+            textAlign: TextAlign.center,
+            style: TextStyle(color: kTextSecondary, fontSize: 15, height: 1.45),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (title != null) ...[
+                  Text(title!, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800, fontSize: 18, height: 1.25)),
+                  const SizedBox(height: 12),
+                ],
+                Flexible(child: SingleChildScrollView(child: content)),
+                if (actions.isNotEmpty) ...[
+                  const SizedBox(height: 22),
+                  ...actions,
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Quiet, borderless secondary action used beneath a primary pill button.
+class _GhostButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onPressed;
+  const _GhostButton({required this.label, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Pressable(
+      onTap: onPressed,
+      child: Container(
+        height: 48,
+        alignment: Alignment.center,
+        child: Text(label, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w700, fontSize: 15)),
+      ),
+    );
+  }
 }
 
 class StateIllustration extends StatelessWidget {
@@ -1365,16 +1599,21 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
   Future<void> _checkVerified() async {
     setState(() => _checking = true);
-    final user = _user;
-    if (user == null) return;
-    await user.reload();
-    final fresh = FirebaseAuth.instance.currentUser;
-    if (fresh != null && fresh.emailVerified && mounted) {
-      await _goNext(fresh);
-    } else if (mounted) {
-      _showMessageDialog(context, 'Not verified yet. Open the email and tap the link.');
+    try {
+      final user = _user;
+      if (user == null) return;
+      await user.reload();
+      final fresh = FirebaseAuth.instance.currentUser;
+      if (fresh != null && fresh.emailVerified && mounted) {
+        await _goNext(fresh);
+      } else if (mounted) {
+        _showMessageDialog(context, 'Not verified yet. Open the email and tap the link.');
+      }
+    } catch (_) {
+      if (mounted) _showMessageDialog(context, 'Could not check verification right now. Please try again.');
+    } finally {
+      if (mounted) setState(() => _checking = false);
     }
-    if (mounted) setState(() => _checking = false);
   }
 
   Future<void> _signOut() async {
@@ -1660,7 +1899,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
               const Spacer(),
               Container(width: 108, height: 108,
                 decoration: BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(30),
-                    boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.35), blurRadius: 24, offset: const Offset(0, 10))]),
+                    boxShadow: kButtonShadow),
                 child: Icon(step['icon'] as IconData, color: kOnAccent, size: 52),
               ),
               const SizedBox(height: 30),
@@ -1762,40 +2001,6 @@ class HomeScreen extends StatelessWidget {
     await FirebaseAuth.instance.signOut();
   }
 
-  Future<void> _updateStreak(String uid) async {
-    final doc = FirebaseFirestore.instance.collection('users').doc(uid);
-    final snap = await doc.get();
-    final data = snap.data() ?? {};
-    final lastActDate = (data['lastActDate'] as Timestamp?)?.toDate();
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    int streak = (data['streak'] ?? 0) as int;
-    if (lastActDate == null) {
-      streak = 1;
-    } else {
-      final lastDay = DateTime(lastActDate.year, lastActDate.month, lastActDate.day);
-      final diff = today.difference(lastDay).inDays;
-      if (diff == 0) return; // Already logged today, don't update
-      if (diff == 1) streak++;
-      else streak = 1; // Reset streak if more than 1 day gap
-    }
-    await doc.update({'streak': streak, 'lastActDate': FieldValue.serverTimestamp()});
-  }
-
-  Future<void> _checkBadges(String uid, int newScore, int acts) async {
-    final doc = FirebaseFirestore.instance.collection('users').doc(uid);
-    final snap = await doc.get();
-    final badges = List<String>.from(snap.data()?['badges'] ?? []);
-    final newBadges = <String>[];
-    if (acts >= 1 && !badges.contains('first_act')) newBadges.add('first_act');
-    if (acts >= 10 && !badges.contains('10_acts')) newBadges.add('10_acts');
-    if (acts >= 50 && !badges.contains('50_acts')) newBadges.add('50_acts');
-    if (newScore >= helperThreshold && !badges.contains('helper')) newBadges.add('helper');
-    if (newScore >= championThreshold && !badges.contains('champion')) newBadges.add('champion');
-    if (newScore >= legendThreshold && !badges.contains('legend')) newBadges.add('legend');
-    if (newBadges.isNotEmpty) await doc.update({'badges': FieldValue.arrayUnion(newBadges)});
-  }
-
   Future<void> _logKindnessAct(BuildContext context, String act, String emoji) async {
     // take a photo as evidence, then let the AI check it matches the description
     final user = FirebaseAuth.instance.currentUser;
@@ -1805,17 +2010,16 @@ class HomeScreen extends StatelessWidget {
     if (picked == null) return;
     if (!context.mounted) return;
 
-    showDialog(context: context, barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        backgroundColor: kCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text('Verifying your photo...', style: TextStyle(color: kTextPrimary), textAlign: TextAlign.center),
-        ]),
-      ),
-    );
+    _showLoadingDialog(context, 'Verifying your photo...');
+    // The spinner is popped manually below. Track that so a failure thrown after
+    // we already dismissed it can't pop a second time and blow away HomeScreen.
+    var loadingShown = true;
+    void dismissLoading() {
+      if (loadingShown) {
+        loadingShown = false;
+        if (context.mounted) Navigator.pop(context);
+      }
+    }
 
     try {
       final imageBytes = await picked.readAsBytes();
@@ -1823,7 +2027,7 @@ class HomeScreen extends StatelessWidget {
       final result = await _callVerifyAct(act, base64Encode(imageBytes));
 
       if (!context.mounted) return;
-      Navigator.pop(context);
+      dismissLoading();
 
       final approved = result['approved'] as bool;
       final reason = result['reason'] as String;
@@ -1879,8 +2083,8 @@ class HomeScreen extends StatelessWidget {
         }
       }
     } catch (e) {
+      dismissLoading();
       if (context.mounted) {
-        Navigator.pop(context);
         _showMessageDialog(context, 'Something didn’t go quite right. Please try again.');
       }
     }
@@ -1944,23 +2148,20 @@ class HomeScreen extends StatelessWidget {
     if (!_canVerify()) { if (context.mounted) _showMessageDialog(context, "Taking a break - try again in a moment."); return; }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    showDialog(context: context, barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        backgroundColor: kCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 16),
-          Text('Taking a quick look...', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600, fontSize: 16), textAlign: TextAlign.center),
-          const SizedBox(height: 6),
-          Text('This usually takes just a moment', style: TextStyle(color: kTextSecondary, fontSize: 13), textAlign: TextAlign.center),
-        ]),
-      ),
-    );
+    _showLoadingDialog(context, 'Taking a quick look...', 'This usually takes just a moment');
+    // See _logKindnessAct: guard against a second Navigator.pop that would pop
+    // the screen behind this spinner if a write fails after it's dismissed.
+    var loadingShown = true;
+    void dismissLoading() {
+      if (loadingShown) {
+        loadingShown = false;
+        if (context.mounted) Navigator.pop(context);
+      }
+    }
     try {
       final result = await _callVerifyAct(description, imageBytes != null ? base64Encode(imageBytes) : null);
       if (!context.mounted) return;
-      Navigator.pop(context);
+      dismissLoading();
       final approved = result['approved'] as bool;
       final reason = result['reason'] as String;
       final category = (result['category'] as String?) ?? 'Other';
@@ -1989,8 +2190,8 @@ class HomeScreen extends StatelessWidget {
         }
       }
     } catch (e) {
+      dismissLoading();
       if (context.mounted) {
-        Navigator.pop(context);
         _showMessageDialog(context, 'Something didn’t go quite right. Please try again.');
       }
     }
@@ -2053,7 +2254,7 @@ class HomeScreen extends StatelessWidget {
                   width: double.infinity, clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24),
-                    boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.35), blurRadius: 28, offset: const Offset(0, 12))],
+                    boxShadow: [kCardShadow],
                   ),
                   child: Stack(children: [
                     Positioned.fill(child: Container(
@@ -2326,7 +2527,7 @@ class _HelpOthersScreenState extends State<HelpOthersScreen> with SingleTickerPr
         child: Container(
           height: 52, padding: const EdgeInsets.symmetric(horizontal: 22),
           decoration: BoxDecoration(gradient: kAccentGradient, borderRadius: BorderRadius.circular(18),
-              boxShadow: [BoxShadow(color: kAccentDark.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, 8))]),
+              boxShadow: kButtonShadow),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.add_rounded, color: kOnAccent, size: 22),
             const SizedBox(width: 8),
@@ -2430,28 +2631,13 @@ class RequestCard extends StatelessWidget {
   }
 
   Future<void> _markComplete(BuildContext context) async {
-    final noteController = TextEditingController();
-    final note = await showDialog<String>(context: context, builder: (_) => AlertDialog(
-      backgroundColor: kCard,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text('Send a Thank You', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700)),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('Send your volunteer a note of gratitude.', style: TextStyle(color: kTextSecondary)),
-        const SizedBox(height: 12),
-        TextField(controller: noteController, maxLines: 3, style: TextStyle(color: kTextPrimary),
-            decoration: InputDecoration(hintText: 'Thank you so much for...', hintStyle: TextStyle(color: kTextSecondary), filled: true, fillColor: kCardLight, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
-      ]),
-      actions: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerRight,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            _KindredButton(label: 'Send', onPressed: () => Navigator.pop(context, noteController.text.trim()), compact: true, fullWidth: false),
-            TextButton(onPressed: () => Navigator.pop(context, ''), child: Text('Skip', style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
-          ]),
-        ),
-      ],
-    ));
+    final note = await _showNoteDialog(
+      context,
+      title: 'Send a Thank You',
+      message: 'Send your volunteer a note of gratitude.',
+      hint: 'Thank you so much for...',
+      actionLabel: 'Send',
+    );
 
     await FirebaseFirestore.instance.collection('requests').doc(docId).update({'status': 'completed'});
     if (note != null && note.isNotEmpty) {
@@ -2474,6 +2660,10 @@ class RequestCard extends StatelessWidget {
       else if (newScore >= championThreshold) level = 'Champion';
       else if (newScore >= helperThreshold) level = 'Helper';
       await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
+      // Advance the volunteer's daily streak. (Badge + history writes for another
+      // user are blocked by firestore.rules, which only lets a non-owner touch
+      // score/level/acts/streak/lastActDate — streak is the one we can update.)
+      await _updateStreak(volunteerId);
 
       // Notify volunteer
       await _sendPushNotification(
@@ -2596,7 +2786,7 @@ class RequestCard extends StatelessWidget {
               _Pressable(onTap: () => _markComplete(context), child: Container(
                 height: 40, padding: const EdgeInsets.symmetric(horizontal: 18),
                 decoration: BoxDecoration(color: kAccentDark, borderRadius: BorderRadius.circular(14),
-                    boxShadow: [BoxShadow(color: kAccentDark.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))]),
+                    boxShadow: kButtonShadow),
                 child: const Center(child: Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13))),
               )),
           ]),
@@ -2780,10 +2970,10 @@ void _showPostRequestSheet(BuildContext context) {
 
   showModalBottomSheet(
     context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
-    builder: (_) => StatefulBuilder(builder: (context, setModalState) => Container(
-      height: MediaQuery.of(context).size.height * 0.82,
+    builder: (_) => StatefulBuilder(builder: (sheetContext, setModalState) => Container(
+      height: MediaQuery.of(sheetContext).size.height * 0.82,
       decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      padding: EdgeInsets.only(left: 24, right: 24, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 24),
+      padding: EdgeInsets.only(left: 24, right: 24, top: 20, bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24),
       child: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Center(child: Container(width: 36, height: 4, decoration: BoxDecoration(color: kDivider, borderRadius: BorderRadius.circular(2)))),
         const SizedBox(height: 20),
@@ -2831,7 +3021,7 @@ void _showPostRequestSheet(BuildContext context) {
             final user = FirebaseAuth.instance.currentUser;
             if (user == null) return;
             if (descController.text.trim().isEmpty) { _showMessageDialog(context, 'Please add a description.'); return; }
-            if (!_canPost()) { if (context.mounted) { _showMessageDialog(context, 'Please wait a moment before posting again.'); return; } }
+            if (!_canPost()) { _showMessageDialog(context, 'Please wait a moment before posting again.'); return; }
             final pos = await _getCurrentPosition();
             if (pos != null) await _saveMyLocation(pos);
             final ref = await FirebaseFirestore.instance.collection('requests').add({
@@ -2842,8 +3032,8 @@ void _showPostRequestSheet(BuildContext context) {
               if (pos != null) 'lng': pos.longitude,
             });
             await _notifyNearby(ref.id);
+            if (sheetContext.mounted) Navigator.pop(sheetContext);
             if (context.mounted) {
-              Navigator.pop(context);
               Navigator.of(context).push(MaterialPageRoute<void>(
                 builder: (_) => _SuccessState(
                   title: 'Your request is out there',
@@ -3002,6 +3192,23 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   }
 
+  Future<void> _showChatMenu() async {
+    final v = await _showActionSheet<String>(context, title: widget.otherName, actions: const [
+      _SheetAction(icon: Icons.person_rounded, label: 'View Profile', value: 'profile'),
+      _SheetAction(icon: Icons.flag_outlined, label: 'Report User', value: 'report'),
+      _SheetAction(icon: Icons.block_rounded, label: 'Block User', value: 'block', destructive: true),
+    ]);
+    if (!mounted) return;
+    switch (v) {
+      case 'profile':
+        Navigator.push(context, _fadeSlideRoute(UserProfileScreen(uid: widget.otherUid, initialName: widget.otherName)));
+      case 'report':
+        _showReportSheet(context, widget.otherUid, widget.otherName, chatId: widget.chatId);
+      case 'block':
+        _blockUser(context, widget.otherUid, name: widget.otherName);
+    }
+  }
+
   Future<void> _completeRequestFromChat(DocumentSnapshot requestSnap) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -3012,28 +3219,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final category = data['category'] ?? 'favor';
     if (requesterId == null) return;
 
-    final noteController = TextEditingController();
-    final note = await showDialog<String>(context: context, builder: (_) => AlertDialog(
-      backgroundColor: kCard,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text('Done helping?', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700)),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('You helped with $category. Send $requesterName a thank-you note.', style: TextStyle(color: kTextSecondary)),
-        const SizedBox(height: 12),
-        TextField(controller: noteController, maxLines: 3, style: TextStyle(color: kTextPrimary),
-            decoration: InputDecoration(hintText: 'Thank you for letting me help...', hintStyle: TextStyle(color: kTextSecondary), filled: true, fillColor: kCardLight, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
-      ]),
-      actions: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerRight,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            _KindredButton(label: 'Done', onPressed: () => Navigator.pop(context, noteController.text.trim()), compact: true, fullWidth: false),
-            TextButton(onPressed: () => Navigator.pop(context, ''), child: Text('Skip', style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
-          ]),
-        ),
-      ],
-    ));
+    final note = await _showNoteDialog(
+      context,
+      title: 'Done helping?',
+      message: 'You helped with $category. Send $requesterName a thank-you note.',
+      hint: 'Thank you for letting me help...',
+      actionLabel: 'Done',
+    );
 
     try {
       await FirebaseFirestore.instance.collection('requests').doc(widget.chatId).update({'status': 'completed'});
@@ -3050,12 +3242,22 @@ class _ChatScreenState extends State<ChatScreen> {
       final doc = FirebaseFirestore.instance.collection('users').doc(user.uid);
       final snap = await doc.get();
       final currentScore = (snap.data()?['kindnessScore'] ?? 0) as int;
+      final currentActs = (snap.data()?['actsCompleted'] ?? 0) as int;
       final newScore = currentScore + _currentPoints;
+      final newActs = currentActs + 1;
       String level = 'Newcomer';
       if (newScore >= legendThreshold) level = 'Legend';
       else if (newScore >= championThreshold) level = 'Champion';
       else if (newScore >= helperThreshold) level = 'Helper';
       await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
+      // Volunteer completing their own help: full streak + badge + history update.
+      await _updateStreak(user.uid);
+      await _checkBadges(user.uid, newScore, newActs);
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('history').add({
+        'act': category, 'emoji': _categoryEmoji(category), 'points': _currentPoints, 'approved': true,
+        'reason': 'Helped a neighbor',
+        'completedAt': FieldValue.serverTimestamp(),
+      });
 
       await _sendPushNotification(
         requesterId,
@@ -3109,24 +3311,10 @@ class _ChatScreenState extends State<ChatScreen> {
               );
             },
           ),
-          PopupMenuButton<String>(
-            color: kCard,
+          IconButton(
+            tooltip: 'More options',
             icon: Icon(Icons.more_vert_rounded, color: kTextSecondary),
-            onSelected: (v) {
-              switch (v) {
-                case 'profile':
-                  Navigator.push(context, _fadeSlideRoute(UserProfileScreen(uid: widget.otherUid, initialName: widget.otherName)));
-                case 'report':
-                  _showReportSheet(context, widget.otherUid, widget.otherName, chatId: widget.chatId);
-                case 'block':
-                  _blockUser(context, widget.otherUid, name: widget.otherName);
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'profile', child: Text('View Profile')),
-              PopupMenuItem(value: 'report', child: Text('Report User')),
-              PopupMenuItem(value: 'block', child: Text('Block User')),
-            ],
+            onPressed: () => _showChatMenu(),
           ),
         ],
       ),
@@ -3182,7 +3370,7 @@ class _ChatScreenState extends State<ChatScreen> {
               onSubmitted: (_) => _send(),
             )),
             const SizedBox(width: 8),
-            _Pressable(onTap: _send, pressedScale: 0.9, child: Container(width: 44, height: 44, decoration: BoxDecoration(gradient: kAccentGradient, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kAccent.withValues(alpha: 0.4), blurRadius: 12, offset: const Offset(0, 4))]), child: Icon(Icons.send_rounded, color: kOnAccent, size: 20))),
+            _Pressable(onTap: _send, pressedScale: 0.9, child: Container(width: 44, height: 44, decoration: BoxDecoration(gradient: kAccentGradient, shape: BoxShape.circle,                     boxShadow: kButtonShadow), child: Icon(Icons.send_rounded, color: kOnAccent, size: 20))),
           ]),
         ),
       ]),
@@ -3427,7 +3615,12 @@ class _NearbyMapState extends State<_NearbyMap> {
   Future<void> _loadLocation() async {
     final pos = await _getCurrentPosition();
     if (pos == null) return;
-    if (mounted) { setState(() { _center = LatLng(pos.latitude, pos.longitude); _locationLoaded = true; }); _mapController.move(_center, 13); }
+    if (!mounted) return;
+    setState(() { _center = LatLng(pos.latitude, pos.longitude); _locationLoaded = true; });
+    // The map may not be attached yet on a cold start; move() asserts in that case.
+    try {
+      _mapController.move(_center, 13);
+    } catch (_) {}
     _saveMyLocation(pos);
   }
 
@@ -4345,13 +4538,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
       destructive: true,
     ));
     if (confirm != true) return;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
+    if (!context.mounted) return;
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid;
+    if (uid == null) return;
+
+    _showLoadingDialog(context, 'Deleting your account...');
+    try {
+      // Best-effort cleanup of the user's public footprint (their profile doc is
+      // the PII source; feed/requests/notifications are their visible activity).
+      final requests = await FirebaseFirestore.instance.collection('requests').where('requesterId', isEqualTo: uid).get();
+      for (final d in requests.docs) { await d.reference.delete(); }
+      final feed = await FirebaseFirestore.instance.collection('feed').where('uid', isEqualTo: uid).get();
+      for (final d in feed.docs) { await d.reference.delete(); }
+      final notifs = await FirebaseFirestore.instance.collection('notifications').where('toUid', isEqualTo: uid).get();
+      for (final d in notifs.docs) { await d.reference.delete(); }
       await FirebaseFirestore.instance.collection('users').doc(uid).collection('private').doc('data').delete();
       await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+      await user!.delete();
+      if (!kIsWeb) await GoogleSignIn().signOut();
+      if (context.mounted) Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      _showMessageDialog(context, e.code == 'requires-recent-login'
+          ? 'For your security, please sign out and sign back in, then delete your account.'
+          : 'We could not delete your account right now. Please try again.');
+    } catch (_) {
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      _showMessageDialog(context, 'We could not delete your account right now. Please try again.');
     }
-    await FirebaseAuth.instance.currentUser?.delete();
-    if (!kIsWeb) await GoogleSignIn().signOut();
   }
 
   @override
@@ -4370,35 +4587,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.brightness_auto_rounded,
               title: 'Theme',
-              trailing: DropdownButton<ThemeMode>(
-                value: _themeMode,
-                dropdownColor: kCard,
-                style: TextStyle(color: kTextPrimary),
-                underline: const SizedBox(),
-                items: const [
-                  DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
-                  DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
-                  DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
-                ],
-                onChanged: (v) {
-                  if (v != null) {
-                    setState(() => _themeMode = v);
-                    KindredApp.of(context)?.setThemeMode(v);
-                  }
-                },
-              ),
+              trailing: Text(_themeLabel(_themeMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
+              onTap: () async {
+                final v = await _showActionSheet<ThemeMode>(context, title: 'Theme', actions: [
+                  _SheetAction(icon: Icons.brightness_auto_rounded, label: 'System', value: ThemeMode.system, selected: _themeMode == ThemeMode.system),
+                  _SheetAction(icon: Icons.light_mode_rounded, label: 'Light', value: ThemeMode.light, selected: _themeMode == ThemeMode.light),
+                  _SheetAction(icon: Icons.dark_mode_rounded, label: 'Dark', value: ThemeMode.dark, selected: _themeMode == ThemeMode.dark),
+                ]);
+                if (v != null && context.mounted) {
+                  setState(() => _themeMode = v);
+                  KindredApp.of(context)?.setThemeMode(v);
+                }
+              },
             ),
             _SettingsTile(
               icon: Icons.language_rounded,
               title: 'Language',
-              trailing: DropdownButton<String>(
-                value: _language,
-                dropdownColor: kCard,
-                style: TextStyle(color: kTextPrimary),
-                underline: const SizedBox(),
-                items: ['English', 'Spanish', 'French', 'Portuguese'].map((l) => DropdownMenuItem(value: l, child: Text(l))).toList(),
-                onChanged: (v) { if (v != null) { setState(() => _language = v); _saveSettings(); } },
-              ),
+              trailing: Text(_language, style: TextStyle(color: kTextSecondary, fontSize: 14)),
+              onTap: () async {
+                final v = await _showActionSheet<String>(context, title: 'Language', actions: [
+                  for (final l in const ['English', 'Spanish', 'French', 'Portuguese'])
+                    _SheetAction(icon: Icons.language_rounded, label: l, value: l, selected: _language == l),
+                ]);
+                if (v != null && mounted) { setState(() => _language = v); _saveSettings(); }
+              },
             ),
           ]),
 
@@ -4432,7 +4644,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 activeColor: kAccent,
                 inactiveColor: kDivider,
                 label: '${_nearbyRadiusMi.toStringAsFixed(_nearbyRadiusMi == _nearbyRadiusMi.roundToDouble() ? 0 : 1)} mi',
-                onChanged: (v) { setState(() => _nearbyRadiusMi = v); _saveSettings(); },
+                onChanged: (v) => setState(() => _nearbyRadiusMi = v),
+                onChangeEnd: (_) => _saveSettings(),
               ),
             ),
           ]),
@@ -4445,12 +4658,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.info_outline_rounded,
               title: 'About Kindred',
-              onTap: () => showDialog(context: context, builder: (_) => AlertDialog(
-                backgroundColor: kCard,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                title: Text('About Kindred', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800)),
-                content: Text('Kindred is a community mutual-aid app where neighbors can help neighbors with everyday tasks — completely free of charge, powered by kindness.\n\nBuilt with love to make communities stronger, one act at a time. Made with ❤️ in Bartlett, TN by Jonah B.', style: TextStyle(color: kTextSecondary, height: 1.6)),
-                actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('Close', style: TextStyle(color: kAccent)))],
+              onTap: () => showDialog(context: context, builder: (_) => _KindredDialog(
+                title: 'About Kindred',
+                content: 'Kindred is a community mutual-aid app where neighbors can help neighbors with everyday tasks — completely free of charge, powered by kindness.\n\nBuilt with love to make communities stronger, one act at a time. Made with ❤️ in Bartlett, TN by Jonah B.',
+                actionText: 'Close',
+                onAction: () => Navigator.pop(context),
               )),
             ),
             _SettingsTile(
@@ -5151,7 +5363,6 @@ class _KindredButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final disabled = loading || onPressed == null;
-    final danger = destructive ? kDangerFill : kAccent;
     final button = AnimatedOpacity(
       opacity: disabled ? 0.6 : 1.0,
       duration: const Duration(milliseconds: 150),
@@ -5162,7 +5373,7 @@ class _KindredButton extends StatelessWidget {
           gradient: destructive ? null : kAccentGradient,
           color: destructive ? kDangerFill : null,
           borderRadius: BorderRadius.circular(compact ? 14 : 18),
-          boxShadow: [BoxShadow(color: danger.withValues(alpha: 0.2), blurRadius: 12, offset: const Offset(0, 4))],
+          boxShadow: disabled ? const [] : kButtonShadow,
         ),
         child: Center(
           child: loading
@@ -5292,26 +5503,15 @@ class _KindredDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: kCard,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      title: Text(title, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800)),
-      content: SingleChildScrollView(child: Text(content, style: TextStyle(color: kTextSecondary, height: 1.5))),
+    return _KindredDialogShell(
+      title: title,
+      content: Text(content),
       actions: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerRight,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (destructive && cancelText != null)
-              TextButton(onPressed: onCancel, child: Text(cancelText!, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
-            const SizedBox(width: 8),
-            _KindredButton(label: actionText, onPressed: onAction, destructive: destructive, compact: true, fullWidth: false),
-            if (!destructive && cancelText != null) ...[
-              const SizedBox(width: 8),
-              TextButton(onPressed: onCancel, child: Text(cancelText!, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600))),
-            ],
-          ]),
-        ),
+        _KindredButton(label: actionText, onPressed: onAction, destructive: destructive),
+        if (cancelText != null) ...[
+          const SizedBox(height: 10),
+          _GhostButton(label: cancelText!, onPressed: onCancel ?? () => Navigator.pop(context)),
+        ],
       ],
     );
   }
