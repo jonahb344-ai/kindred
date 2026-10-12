@@ -25,6 +25,7 @@
 // (groceries, yard work, rides, etc) — all free, no catch.
 // ============================================================
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -247,34 +248,34 @@ Color _categoryColor(String cat) {
 IconData _badgeIcon(String b) {
   // matching badges to material icons — took a while to find ones that felt right
   switch (b) {
-    case 'first_act': return Icons.eco;
-    case '10_acts': return Icons.grade;
-    case '50_acts': return Icons.emoji_events;
-    case 'helper': return Icons.handshake;
-    case 'champion': return Icons.military_tech;
-    case 'legend': return Icons.workspace_premium;
-    default: return Icons.military_tech;
+    case 'first_act': return Icons.eco_rounded;
+    case '10_acts': return Icons.star_rounded;
+    case '50_acts': return Icons.emoji_events_rounded;
+    case 'helper': return Icons.handshake_rounded;
+    case 'champion': return Icons.military_tech_rounded;
+    case 'legend': return Icons.workspace_premium_rounded;
+    default: return Icons.military_tech_rounded;
   }
 }
 
 IconData _levelIcon(String level) {
   switch (level) {
-    case 'Helper': return Icons.handshake;
-    case 'Champion': return Icons.emoji_events;
-    case 'Legend': return Icons.workspace_premium;
-    default: return Icons.eco;
+    case 'Helper': return Icons.handshake_rounded;
+    case 'Champion': return Icons.emoji_events_rounded;
+    case 'Legend': return Icons.workspace_premium_rounded;
+    default: return Icons.eco_rounded;
   }
 }
 
 IconData _categoryIcon(String cat) {
   switch (cat) {
-    case 'Grocery Run': return Icons.shopping_cart;
-    case 'Lawn Care': return Icons.yard;
-    case 'Moving Help': return Icons.inventory_2;
-    case 'Pet Care': return Icons.pets;
-    case 'Meal Prep': return Icons.restaurant;
-    case 'Give a Ride': return Icons.directions_car;
-    default: return Icons.favorite;
+    case 'Grocery Run': return Icons.shopping_cart_rounded;
+    case 'Lawn Care': return Icons.yard_rounded;
+    case 'Moving Help': return Icons.inventory_2_rounded;
+    case 'Pet Care': return Icons.pets_rounded;
+    case 'Meal Prep': return Icons.restaurant_rounded;
+    case 'Give a Ride': return Icons.directions_car_rounded;
+    default: return Icons.favorite_rounded;
   }
 }
 
@@ -709,7 +710,7 @@ void _showReportSheet(BuildContext context, String reportedUid, String reportedN
               decoration: InputDecoration(hintText: 'Add any details that help us understand the issue...', hintStyle: TextStyle(color: kTextSecondary), filled: true, fillColor: kCardLight, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none), counterStyle: TextStyle(color: kTextSecondary))),
           const SizedBox(height: 12),
           Row(children: [
-            Checkbox(value: alsoBlock, onChanged: (v) => setModalState(() => alsoBlock = v ?? false), activeColor: const Color(0xFFEF4444)),
+            CupertinoCheckbox(value: alsoBlock, onChanged: (v) => setModalState(() => alsoBlock = v ?? false), activeColor: const Color(0xFFEF4444)),
             Expanded(child: Text('Also block this user', style: TextStyle(color: kTextPrimary, fontSize: 14))),
           ]),
           const SizedBox(height: 8),
@@ -2244,7 +2245,7 @@ class HomeScreen extends StatelessWidget {
                     backgroundImage: _avatarImage(photo ?? user?.photoURL),
                     backgroundColor: kAccent,
                     child: (photo == null || photo.toString().isEmpty) && user?.photoURL == null
-                        ? const Icon(Icons.person, color: Colors.white, size: 17)
+                        ? const Icon(Icons.person_rounded, color: Colors.white, size: 17)
                         : null,
                   ),
                 ),
@@ -2366,12 +2367,12 @@ class HomeScreen extends StatelessWidget {
                   crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
                   crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.4,
                   children: [
-                    _HelpCard(icon: Icons.shopping_cart, label: 'Grocery Run', tint: _categoryColor('Grocery Run'), onTap: () => _logKindnessAct(context, 'Grocery Run', '🛒')),
-                    _HelpCard(icon: Icons.yard, label: 'Lawn Care', tint: _categoryColor('Lawn Care'), onTap: () => _logKindnessAct(context, 'Lawn Care', '🌿')),
-                    _HelpCard(icon: Icons.inventory_2, label: 'Moving Help', tint: _categoryColor('Moving Help'), onTap: () => _logKindnessAct(context, 'Moving Help', '📦')),
-                    _HelpCard(icon: Icons.pets, label: 'Pet Care', tint: _categoryColor('Pet Care'), onTap: () => _logKindnessAct(context, 'Pet Care', '🐾')),
-                    _HelpCard(icon: Icons.restaurant, label: 'Meal Prep', tint: _categoryColor('Meal Prep'), onTap: () => _logKindnessAct(context, 'Meal Prep', '🍳')),
-                    _HelpCard(icon: Icons.directions_car, label: 'Give a Ride', tint: _categoryColor('Give a Ride'), onTap: () => _logKindnessAct(context, 'Give a Ride', '🚗')),
+                    _HelpCard(icon: Icons.shopping_cart_rounded, label: 'Grocery Run', tint: _categoryColor('Grocery Run'), onTap: () => _logKindnessAct(context, 'Grocery Run', '🛒')),
+                    _HelpCard(icon: Icons.yard_rounded, label: 'Lawn Care', tint: _categoryColor('Lawn Care'), onTap: () => _logKindnessAct(context, 'Lawn Care', '🌿')),
+                    _HelpCard(icon: Icons.inventory_2_rounded, label: 'Moving Help', tint: _categoryColor('Moving Help'), onTap: () => _logKindnessAct(context, 'Moving Help', '📦')),
+                    _HelpCard(icon: Icons.pets_rounded, label: 'Pet Care', tint: _categoryColor('Pet Care'), onTap: () => _logKindnessAct(context, 'Pet Care', '🐾')),
+                    _HelpCard(icon: Icons.restaurant_rounded, label: 'Meal Prep', tint: _categoryColor('Meal Prep'), onTap: () => _logKindnessAct(context, 'Meal Prep', '🍳')),
+                    _HelpCard(icon: Icons.directions_car_rounded, label: 'Give a Ride', tint: _categoryColor('Give a Ride'), onTap: () => _logKindnessAct(context, 'Give a Ride', '🚗')),
                   ],
                 ),
 
@@ -2431,7 +2432,7 @@ class HomeScreen extends StatelessWidget {
                           decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
                           child: Row(children: [
                             _avatarLabel(_displayName(f['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(f['photoUrl']), backgroundColor: kAccent,
-                                child: f['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null)),
+                                child: f['photoUrl'] == null ? const Icon(Icons.person_rounded, color: Colors.white, size: 14) : null)),
                             const SizedBox(width: 10),
                             Expanded(child: RichText(text: TextSpan(style: TextStyle(color: kTextSecondary, fontSize: 13), children: [
                               TextSpan(text: _displayName(f['name']), style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600)),
@@ -3494,7 +3495,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
               return (tb?.millisecondsSinceEpoch ?? 0).compareTo(ta?.millisecondsSinceEpoch ?? 0);
             });
           if (chats.isEmpty) {
-            return _EmptyState(icon: Icons.forum_outlined, title: 'No conversations yet', subtitle: 'When someone claims your request, you’ll see the chat here.');
+            return _EmptyState(icon: Icons.chat_bubble_outline_rounded, title: 'No conversations yet', subtitle: 'When someone claims your request, you’ll see the chat here.');
           }
           return FutureBuilder<DocumentSnapshot>(
             future: uid == null ? null : _blockedUsersRef(uid).get(),
@@ -3863,7 +3864,7 @@ class LeaderboardScreen extends StatelessWidget {
                       ),
                       child: Row(children: [
                         SizedBox(width: 40, child: rank <= 3 ? _Medal(rank: rank, size: 34) : Text(rankLabel, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: rankColor))),
-                        _avatarLabel(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(data['photoUrl']), backgroundColor: kAccent, child: data['photoUrl'] == null ? const Icon(Icons.person, color: Colors.white, size: 14) : null)),
+                        _avatarLabel(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(data['photoUrl']), backgroundColor: kAccent, child: data['photoUrl'] == null ? const Icon(Icons.person_rounded, color: Colors.white, size: 14) : null)),
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']),
@@ -3956,7 +3957,7 @@ class ProfileScreen extends StatelessWidget {
                   backgroundImage: _avatarImage(newPhotoData ?? data['photoUrl'] ?? user?.photoURL),
                   backgroundColor: kAccent.withValues(alpha: 0.3),
                   child: newPhotoData == null && data['photoUrl'] == null && user?.photoURL == null
-                      ? const Icon(Icons.person, size: 30, color: Colors.white)
+                      ? const Icon(Icons.person_rounded, size: 30, color: Colors.white)
                       : null,
                 ),
                 const SizedBox(width: 14),
@@ -3993,7 +3994,7 @@ class ProfileScreen extends StatelessWidget {
                 return GestureDetector(
                   onTap: canEditBanner ? () => setState(() => selectedBannerColor = color.toARGB32()) : null,
                   child: Container(width: 38, height: 38, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: isSelected ? Border.all(color: Colors.white, width: 3) : null),
-                      child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 18) : null),
+                      child: isSelected ? const Icon(Icons.check_rounded, color: Colors.white, size: 18) : null),
                 );
               }).toList())),
           const SizedBox(height: 16),
@@ -4639,12 +4640,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.chat_bubble_outline_rounded,
               title: 'Message notifications',
-              trailing: Switch(value: _notifMessages, onChanged: (v) { setState(() => _notifMessages = v); _saveSettings(); }, activeThumbColor: kAccent),
+              trailing: CupertinoSwitch(value: _notifMessages, onChanged: (v) { setState(() => _notifMessages = v); _saveSettings(); }, activeTrackColor: kAccent),
             ),
             _SettingsTile(
               icon: Icons.volunteer_activism_outlined,
               title: 'Request notifications',
-              trailing: Switch(value: _notifRequests, onChanged: (v) { setState(() => _notifRequests = v); _saveSettings(); }, activeThumbColor: kAccent),
+              trailing: CupertinoSwitch(value: _notifRequests, onChanged: (v) { setState(() => _notifRequests = v); _saveSettings(); }, activeTrackColor: kAccent),
             ),
           ]),
 
@@ -4657,14 +4658,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: Slider(
+              child: CupertinoSlider(
                 value: _nearbyRadiusMi.clamp(0.25, 25.0),
                 min: 0.25,
                 max: 25.0,
                 divisions: 99,
                 activeColor: kAccent,
-                inactiveColor: kDivider,
-                label: '${_nearbyRadiusMi.toStringAsFixed(_nearbyRadiusMi == _nearbyRadiusMi.roundToDouble() ? 0 : 1)} mi',
                 onChanged: (v) => setState(() => _nearbyRadiusMi = v),
                 onChangeEnd: (_) => _saveSettings(),
               ),
@@ -4793,7 +4792,7 @@ class _BlockedUsersSection extends StatelessWidget {
               final nameField = _displayName(d?['name']);
               final name = usernameField != null && usernameField.isNotEmpty ? '@$usernameField' : (nameField.isNotEmpty ? nameField : 'Blocked user');
               return ListTile(
-                leading: _avatarLabel(name, CircleAvatar(radius: 16, backgroundImage: _avatarImage(d?['photoUrl']), backgroundColor: kCardLight, child: d?['photoUrl'] == null ? const Icon(Icons.person, size: 16) : null)),
+                leading: _avatarLabel(name, CircleAvatar(radius: 16, backgroundImage: _avatarImage(d?['photoUrl']), backgroundColor: kCardLight, child: d?['photoUrl'] == null ? const Icon(Icons.person_rounded, size: 16) : null)),
                 title: Text(name, style: TextStyle(color: kTextPrimary, fontSize: 14)),
                 trailing: TextButton(
                   onPressed: () async {
@@ -5237,10 +5236,10 @@ class _Medal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final icon = switch (rank) {
-      1 => Icons.emoji_events,
-      2 => Icons.workspace_premium,
-      3 => Icons.military_tech,
-      _ => Icons.trending_up,
+      1 => Icons.emoji_events_rounded,
+      2 => Icons.workspace_premium_rounded,
+      3 => Icons.military_tech_rounded,
+      _ => Icons.trending_up_rounded,
     };
     return Container(
       width: size, height: size,
@@ -5586,7 +5585,7 @@ class _AvatarWithFrame extends StatelessWidget {
       case 'purple': frameColor = const Color(0xFF7B1FA2); break;
       case 'rainbow': gradientColors = [Colors.red, Colors.orange, Colors.yellow, Colors.green, Colors.blue, Colors.purple]; break;
     }
-    final avatar = CircleAvatar(radius: 42, backgroundImage: _avatarImage(photoUrl), backgroundColor: kAccent.withValues(alpha: 0.3), child: photoUrl == null ? const Icon(Icons.person, size: 42, color: Colors.white) : null);
+    final avatar = CircleAvatar(radius: 42, backgroundImage: _avatarImage(photoUrl), backgroundColor: kAccent.withValues(alpha: 0.3), child: photoUrl == null ? const Icon(Icons.person_rounded, size: 42, color: Colors.white) : null);
     if (frameStyle == 'none') return avatar;
     return Container(width: 96, height: 96, decoration: BoxDecoration(shape: BoxShape.circle, gradient: gradientColors != null ? LinearGradient(colors: gradientColors) : null, color: frameColor), padding: const EdgeInsets.all(3), child: avatar);
   }
