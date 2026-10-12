@@ -25,7 +25,7 @@
 // (groceries, yard work, rides, etc) — all free, no catch.
 // ============================================================
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox, CupertinoIcons;
+import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -2001,7 +2001,7 @@ class _MainScreenState extends State<MainScreen> {
                 _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home', selected: _currentIndex == 0, onTap: () => setState(() => _currentIndex = 0)),
                 _NavItem(icon: Icons.volunteer_activism_outlined, activeIcon: Icons.volunteer_activism_rounded, label: 'Help', selected: _currentIndex == 1, badge: helpUnread, onTap: () => setState(() => _currentIndex = 1)),
                 _NavItem(icon: Icons.leaderboard_outlined, activeIcon: Icons.leaderboard_rounded, label: 'Leaders', selected: _currentIndex == 2, onTap: () => setState(() => _currentIndex = 2)),
-                _NavItem(icon: CupertinoIcons.chat_bubble, activeIcon: CupertinoIcons.chat_bubble_fill, label: 'Messages', selected: _currentIndex == 3, badge: chatUnread, onTap: () => setState(() => _currentIndex = 3)),
+                _NavItem(icon: Icons.chat_bubble_outline_rounded, activeIcon: Icons.chat_bubble_rounded, label: 'Messages', selected: _currentIndex == 3, badge: chatUnread, onTap: () => setState(() => _currentIndex = 3)),
                 _NavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'Profile', selected: _currentIndex == 4, onTap: () => setState(() => _currentIndex = 4)),
               ]),
             ),
@@ -3495,7 +3495,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
               return (tb?.millisecondsSinceEpoch ?? 0).compareTo(ta?.millisecondsSinceEpoch ?? 0);
             });
           if (chats.isEmpty) {
-            return _EmptyState(icon: Icons.chat_bubble_outline_rounded, title: 'No conversations yet', subtitle: 'When someone claims your request, you’ll see the chat here.');
+            return _EmptyState(icon: Icons.forum_outlined, title: 'No conversations yet', subtitle: 'When someone claims your request, you’ll see the chat here.');
           }
           return FutureBuilder<DocumentSnapshot>(
             future: uid == null ? null : _blockedUsersRef(uid).get(),
