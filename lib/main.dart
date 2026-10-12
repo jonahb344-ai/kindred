@@ -151,9 +151,13 @@ const int pointsPerAct = 5;
 const String kImgVolunteers = 'assets/volunteers.jpg';
 const String kImgCleanup = 'assets/cleanup.jpg';
 
-// map tile sources — CartoDB for normal view, Esri for satellite
+// map tile sources — Esri street for the normal view and Esri satellite for the
+// satellite toggle. CartoDB used to be the street view, but its free tier now
+// returns literal "API KEY REQUIRED carto.com/basemaps/apikey" watermark tiles
+// to anonymous callers (seen in the field 2026-10-11), so both modes come from
+// Esri instead — the same host the satellite tiles already used.
 const String kTilesLight =
-    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
 const String kTilesSatellite =
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const List<String> kTileSubdomains = ['a', 'b', 'c', 'd'];
@@ -489,6 +493,20 @@ DocumentReference<Map<String, dynamic>> _blockedUsersRef(String? uid) =>
 Future<List<String>> _getBlockedUsers(String uid) async {
   final snap = await _blockedUsersRef(uid).get();
   return List<String>.from(snap.data()?['blockedUsers'] ?? []);
+}
+
+// Safer read of a user's blocked list. Cloud Firestore's DocumentSnapshot
+// subscript (doc['blockedUsers']) THROWS a StateError when the document does
+// not exist, and a signed-in user can legitimately have no users/{uid}/private
+// doc yet (fresh account that never granted location/notifications). All
+// blocked-list reads go through this so a missing doc means "nothing blocked".
+List<String> _safeBlockedList(DocumentSnapshot? snap) {
+  if (snap == null || !snap.exists) return <String>[];
+  final data = snap.data();
+  if (data is! Map) return <String>[];
+  final raw = data['blockedUsers'];
+  if (raw is! List) return <String>[];
+  return List<String>.from(raw.whereType<String>());
 }
 
 Future<void> _blockUser(BuildContext context, String uid, {String? name}) async {
@@ -2403,10 +2421,10 @@ class RequestFeedTab extends StatelessWidget {
         }
         // Filter out blocked users
         return FutureBuilder<DocumentSnapshot>(
-          future: _blockedUsersRef(currentUid).get(),
+          future: currentUid == null ? null : _blockedUsersRef(currentUid).get(),
           builder: (context, userSnap) {
             final allDocs = snapshot.data!.docs;
-            final blockedUsers = (userSnap.hasData && !userSnap.hasError) ? List<String>.from(userSnap.data?['blockedUsers'] ?? []) : <String>[];
+            final blockedUsers = _safeBlockedList(userSnap.data);
             final docs = allDocs.where((d) => !blockedUsers.contains((d.data() as Map)['requesterId'])).toList();
             if (docs.isEmpty && allDocs.isNotEmpty && blockedUsers.isNotEmpty) {
               // might be all blocked; still show empty state but don't block
@@ -3341,7 +3359,7 @@ class _ChatsListScreenState extends State<ChatsListScreen> {
           return FutureBuilder<DocumentSnapshot>(
             future: uid == null ? null : _blockedUsersRef(uid).get(),
             builder: (context, userSnap) {
-              final blockedUsers = List<String>.from(userSnap.data?['blockedUsers'] ?? []);
+              final blockedUsers = _safeBlockedList(userSnap.data);
               final visible = chats.where((d) {
                 final data = d.data() as Map<String, dynamic>;
                 final isRequester = data['requesterId'] == uid;
@@ -3670,7 +3688,7 @@ class LeaderboardScreen extends StatelessWidget {
                 return const _EmptyState(icon: Icons.leaderboard_rounded, title: 'No rankings yet', subtitle: 'Kindness takes a little time. Be the first!');
               }
               final allDocs = snap.data!.docs;
-              final blockedUsers = (userSnap.hasData && !userSnap.hasError) ? List<String>.from(userSnap.data?['blockedUsers'] ?? []) : <String>[];
+              final blockedUsers = _safeBlockedList(userSnap.data);
               final docs = allDocs.where((d) => !blockedUsers.contains(d.id)).toList();
               return ListView.builder(
                 padding: const EdgeInsets.all(16), itemCount: docs.length + 1,
@@ -4599,7 +4617,7 @@ class _BlockedUsersSection extends StatelessWidget {
     return StreamBuilder<DocumentSnapshot>(
       stream: uid == null ? null : _blockedUsersRef(uid).snapshots(),
       builder: (context, snap) {
-        final blockedIds = List<String>.from(snap.data?['blockedUsers'] ?? []);
+        final blockedIds = _safeBlockedList(snap.data);
         if (blockedIds.isEmpty) {
           return const _SettingsTile(icon: Icons.block_rounded, title: 'Blocked Users');
         }
