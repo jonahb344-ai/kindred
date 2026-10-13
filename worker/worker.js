@@ -1065,16 +1065,16 @@ function altstoreSource() {
     name: 'Kindred',
     bundleIdentifier: 'com.jonahb344.kindred',
     developerName: 'Jonah Boyd',
-    version: '0.6.8',
-    versionDate: '2026-10-12',
+    version: '0.6.9',
+    versionDate: '2026-10-13',
     downloadURL:
-      'https://github.com/jonahb344-ai/kindred/releases/download/v0.6.8/Kindred-v0.6.8-unsigned.ipa',
+      'https://github.com/jonahb344-ai/kindred/releases/download/v0.6.9/Kindred-0.6.9-unsigned.ipa',
     localizedDescription:
       'A neighborhood kindness app. Post small favors you need done and get help from people nearby — or browse requests from your neighbors and be the one who shows up. No catch, all free.',
     iconURL:
       'https://raw.githubusercontent.com/jonahb344-ai/kindred/main/assets/icon/app_icon.png',
     tintColor: '63918B',
-    size: 16986658,
+    size: 16990458,
   };
   const payload = {
     name: 'Kindred',
