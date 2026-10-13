@@ -11,6 +11,9 @@
 //   GET  /verified     -> Public, friendly "email verified" page. Used as the continueUrl
 //                         in the Firebase verification email link.
 //   GET  /privacy      -> Public privacy policy page (used for the Google Play listing).
+//   GET  /altstore.json-> AltStore "source" JSON so the iOS app can be installed/updated
+//                         directly from AltStore (free-Apple-ID signing) instead of
+//                         re-sideloading the unsigned IPA every 7 days.
 //
 // Setup:
 //   1. Free Cloudflare account (no credit card).
@@ -39,6 +42,9 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/terms') {
       return termsPage();
+    }
+    if (request.method === 'GET' && url.pathname === '/altstore.json') {
+      return altstoreSource();
     }
     if (request.method === 'POST' && url.pathname === '/verify') {
       return handleVerify(request, env);
@@ -962,4 +968,43 @@ async function handleNotifyNearby(request, env) {
   } catch (e) {
     return serverError('Broadcast failed', 500, e && e.message);
   }
+}
+
+// ─── AltStore source ─────────────────────────────────────────────────────────
+//
+// AltStore (free Apple ID) can install and auto-update the unsigned iOS build
+// straight from a "source" (a hosted JSON file). Adding this URL in
+// AltStore -> Sources makes Kindred appear in Browse, installable without
+// AirDrop/AirServer, and future releases show as an in-app Update.
+// NOTE: bump `version`/`versionDate`/`size`/`downloadURL` on every new release.
+function altstoreSource() {
+  const app = {
+    name: 'Kindred',
+    bundleIdentifier: 'com.kindred.app',
+    developerName: 'Jonah Boyd',
+    version: '0.6.8',
+    versionDate: '2026-10-12',
+    downloadURL:
+      'https://github.com/jonahb344-ai/kindred/releases/download/v0.6.8/Kindred-v0.6.8-unsigned.ipa',
+    localizedDescription:
+      'A neighborhood kindness app. Post small favors you need done and get help from people nearby — or browse requests from your neighbors and be the one who shows up. No catch, all free.',
+    iconURL:
+      'https://raw.githubusercontent.com/jonahb344-ai/kindred/main/assets/icon/app_icon.png',
+    tintColor: '63918B',
+    size: 16986658,
+  };
+  const payload = {
+    name: 'Kindred',
+    identifier: 'com.kindred.altstore',
+    subtitle: 'Kindred alpha builds for AltStore',
+    apps: [app],
+  };
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    },
+  });
 }
