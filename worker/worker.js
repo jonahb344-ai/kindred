@@ -8,6 +8,10 @@
 //   POST /notifyNearby -> When a request is posted, push + in-app notify users whose
 //                         saved location is within NEARBY_RADIUS_KM of the request
 //                         (requires a Firebase Auth ID token)
+//   POST /phone        -> Give one matched participant the other's phone number for a
+//                         claimed/completed request. Caller must be on the request and
+//                         neither side may have blocked the other.
+//                         (requires a Firebase Auth ID token)
 //   GET  /verified     -> Public, friendly "email verified" page. Used as the continueUrl
 //                         in the Firebase verification email link.
 //   GET  /privacy      -> Public privacy policy page (used for the Google Play listing).
@@ -54,6 +58,9 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/notifyNearby') {
       return handleNotifyNearby(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/phone') {
+      return handlePhone(request, env);
     }
     return json({ error: 'Not found' }, 404);
   },
@@ -967,6 +974,82 @@ async function handleNotifyNearby(request, env) {
     return json({ notified });
   } catch (e) {
     return serverError('Broadcast failed', 500, e && e.message);
+  }
+}
+
+// ─── /phone ──────────────────────────────────────────────────────────────────
+
+// Phone numbers are PII stored in users/{uid}/private/data, which clients cannot
+// read (firestore.rules). The service account bypasses those rules, so this route
+// is itself the only gate. It hands a number over ONLY to a requester/volunteer
+// pair who are actually matched on the given request, and only after the request
+// is claimed (a volunteer exists) — never to an outside observer, and never when
+// either side has blocked the other.
+async function handlePhone(request, env) {
+  const sa = getServiceAccount(env);
+  if (!sa) {
+    return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
+  }
+  const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
+  if (!auth) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const requestId = String(body.requestId || '');
+  if (!requestId) {
+    return json({ error: 'Missing requestId' }, 400);
+  }
+  if (!rateLimit('phone:' + auth.uid, 30, 60)) {
+    return json({ error: 'Slow down a moment' }, 429);
+  }
+
+  try {
+    const oauth = await getOAuthToken(sa);
+
+    const req = await readFirestoreDoc(oauth, sa.project_id, 'requests/' + encodeURIComponent(requestId));
+    if (!req) {
+      return json({ error: 'Request not found' }, 404);
+    }
+
+    const requester = fieldValue(req, 'requesterId');
+    const volunteer = fieldValue(req, 'volunteerId');
+    const status = fieldValue(req, 'status');
+    const me = auth.uid;
+    // Both participants must exist and I must be one of them, and the request has
+    // to be claimed or done (a volunteer exists). Otherwise this fails closed.
+    if (!me || !requester || !volunteer || (me !== requester && me !== volunteer)) {
+      return json({ error: 'Not sharing phone for this request' }, 403);
+    }
+    if (status !== 'claimed' && status !== 'completed') {
+      return json({ error: 'Not sharing phone for this request' }, 403);
+    }
+
+    const otherUid = me === requester ? volunteer : requester;
+
+    const myPriv = await readFirestoreDoc(oauth, sa.project_id, 'users/' + encodeURIComponent(me) + '/private/data');
+    const theirPriv = await readFirestoreDoc(oauth, sa.project_id, 'users/' + encodeURIComponent(otherUid) + '/private/data');
+    if (!theirPriv) {
+      return json({ phone: '' });
+    }
+    // Never hand over a number across a block, in either direction.
+    if (
+      (myPriv && arrayOfStrings(myPriv, 'blockedUsers').includes(otherUid)) ||
+      arrayOfStrings(theirPriv, 'blockedUsers').includes(me)
+    ) {
+      return json({ error: 'Not sharing phone for this request' }, 403);
+    }
+
+    const phone = fieldValue(theirPriv, 'phone');
+    return json({ phone: phone ? String(phone).trim() : '' });
+  } catch (e) {
+    return serverError('Phone lookup failed', 500, e && e.message);
   }
 }
 
