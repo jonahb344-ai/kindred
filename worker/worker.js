@@ -980,7 +980,7 @@ async function handleNotifyNearby(request, env) {
 function altstoreSource() {
   const app = {
     name: 'Kindred',
-    bundleIdentifier: 'com.kindred.app',
+    bundleIdentifier: 'com.jonahb344.kindred',
     developerName: 'Jonah Boyd',
     version: '0.6.8',
     versionDate: '2026-10-12',
