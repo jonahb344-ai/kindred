@@ -1059,22 +1059,63 @@ async function handlePhone(request, env) {
 // straight from a "source" (a hosted JSON file). Adding this URL in
 // AltStore -> Sources makes Kindred appear in Browse, installable without
 // AirDrop/AirServer, and future releases show as an in-app Update.
-// NOTE: bump `version`/`versionDate`/`size`/`downloadURL` on every new release.
-function altstoreSource() {
+//
+// The metadata is derived from the latest GitHub release at request time, so
+// new releases are picked up AUTOMATICALLY — no worker redeploy needed. The
+// values below are only a fallback for when the GitHub API is unreachable.
+const ALTSTORE_FALLBACK = {
+  version: '0.6.9',
+  versionDate: '2026-10-13',
+  downloadURL:
+    'https://github.com/jonahb344-ai/kindred/releases/download/v0.6.9/Kindred-0.6.9-unsigned.ipa',
+  size: 16990466,
+};
+
+async function altstoreSource() {
+  let meta = ALTSTORE_FALLBACK;
+  try {
+    const r = await fetch(
+      'https://api.github.com/repos/jonahb344-ai/kindred/releases/latest',
+      {
+        headers: {
+          'User-Agent': 'kindred-altstore-source',
+          Accept: 'application/vnd.github+json',
+        },
+        // Cache at the edge so we stay far under GitHub's 60/hr unauth limit.
+        cf: { cacheTtl: 300, cacheEverything: true },
+      },
+    );
+    if (r.ok) {
+      const d = await r.json();
+      const version = String(d.tag_name || '').replace(/^v/, '');
+      const ipa = (d.assets || []).find((a) => /\.ipa$/i.test(a.name || ''));
+      if (version && ipa) {
+        meta = {
+          version,
+          versionDate:
+            String(d.published_at || '').slice(0, 10) || ALTSTORE_FALLBACK.versionDate,
+          downloadURL: ipa.browser_download_url,
+          size: ipa.size,
+        };
+      }
+    }
+  } catch (_) {
+    // Keep the fallback so AltStore still gets a valid source.
+  }
+
   const app = {
     name: 'Kindred',
     bundleIdentifier: 'com.jonahb344.kindred',
     developerName: 'Jonah Boyd',
-    version: '0.6.9',
-    versionDate: '2026-10-13',
-    downloadURL:
-      'https://github.com/jonahb344-ai/kindred/releases/download/v0.6.9/Kindred-0.6.9-unsigned.ipa',
+    version: meta.version,
+    versionDate: meta.versionDate,
+    downloadURL: meta.downloadURL,
     localizedDescription:
       'A neighborhood kindness app. Post small favors you need done and get help from people nearby — or browse requests from your neighbors and be the one who shows up. No catch, all free.',
     iconURL:
       'https://raw.githubusercontent.com/jonahb344-ai/kindred/main/assets/icon/app_icon.png',
     tintColor: '63918B',
-    size: 16990466,
+    size: meta.size,
   };
   const payload = {
     name: 'Kindred',
