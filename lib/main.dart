@@ -2587,9 +2587,10 @@ class RequestFeedTab extends StatelessWidget {
             if (docs.isEmpty && allDocs.isEmpty) {
               return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
             }
+            final ordered = _pinUrgent(docs);
             return ListView.builder(
-              padding: const EdgeInsets.all(16), itemCount: docs.length,
-              itemBuilder: (context, i) => RequestCard(docId: docs[i].id, data: docs[i].data() as Map<String, dynamic>),
+              padding: const EdgeInsets.all(16), itemCount: ordered.length,
+              itemBuilder: (context, i) => RequestCard(docId: ordered[i].id, data: ordered[i].data() as Map<String, dynamic>),
             );
           },
         );
@@ -2610,10 +2611,11 @@ class MyRequestsTab extends StatelessWidget {
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const _EmptyState(icon: Icons.post_add_rounded, title: "No requests yet", subtitle: 'Tap Post Request to ask for help');
         }
+        final ordered = _pinUrgent(snapshot.data!.docs);
         return ListView.builder(
-          padding: const EdgeInsets.all(16), itemCount: snapshot.data!.docs.length,
+          padding: const EdgeInsets.all(16), itemCount: ordered.length,
           itemBuilder: (context, i) {
-            final doc = snapshot.data!.docs[i];
+            final doc = ordered[i];
             return RequestCard(docId: doc.id, data: doc.data() as Map<String, dynamic>, isOwner: true);
           },
         );
@@ -2622,13 +2624,43 @@ class MyRequestsTab extends StatelessWidget {
   }
 }
 
+// SOS and High-urgency requests jump to the top of a feed (SOS first), newest
+// first inside each urgency tier.
+int _urgencyRank(String urgency) {
+  switch (urgency) {
+    case 'SOS':
+      return 0;
+    case 'High':
+      return 1;
+    case 'Medium':
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+List<QueryDocumentSnapshot> _pinUrgent(List<QueryDocumentSnapshot> docs) {
+  final sorted = List<QueryDocumentSnapshot>.from(docs);
+  sorted.sort((a, b) {
+    final ma = a.data() as Map<String, dynamic>;
+    final mb = b.data() as Map<String, dynamic>;
+    final rank = _urgencyRank((ma['urgency'] as String?) ?? 'Low')
+        .compareTo(_urgencyRank((mb['urgency'] as String?) ?? 'Low'));
+    if (rank != 0) return rank;
+    final ta = (ma['createdAt'] as Timestamp?)?.toDate().millisecondsSinceEpoch ?? 0;
+    final tb = (mb['createdAt'] as Timestamp?)?.toDate().millisecondsSinceEpoch ?? 0;
+    return tb.compareTo(ta);
+  });
+  return sorted;
+}
+
 class RequestCard extends StatelessWidget {
   final String docId;
   final Map<String, dynamic> data;
   final bool isOwner;
   const RequestCard({super.key, required this.docId, required this.data, this.isOwner = false});
 
-  Color _urgencyColor(String u) { switch (u) { case 'High': return Colors.red; case 'Medium': return Colors.orange; default: return kAccent; } }
+  Color _urgencyColor(String u) { switch (u) { case 'SOS': return kDangerFill; case 'High': return Colors.red; case 'Medium': return Colors.orange; default: return kAccent; } }
 
   Future<void> _claimRequest(BuildContext context) async {
     // volunteer taps "I'll help" — sets the request to claimed and opens the chat
@@ -2757,7 +2789,8 @@ class RequestCard extends StatelessWidget {
       key: ValueKey('card-$docId'),
       child: Container(
       margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(kRadius), boxShadow: [kSoftShadow]),
+      decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(kRadius), boxShadow: [kSoftShadow],
+          border: urgency == 'SOS' ? Border.all(color: kDangerFill, width: 1.5) : null),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2778,11 +2811,14 @@ class RequestCard extends StatelessWidget {
             )),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: _urgencyColor(urgency).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+              decoration: BoxDecoration(
+                  color: urgency == 'SOS' ? kDangerFill : _urgencyColor(urgency).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: urgency == 'SOS' ? kButtonShadow : null),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Container(width: 6, height: 6, decoration: BoxDecoration(color: _urgencyColor(urgency), shape: BoxShape.circle)),
+                Container(width: 6, height: 6, decoration: BoxDecoration(color: urgency == 'SOS' ? Colors.white : _urgencyColor(urgency), shape: BoxShape.circle)),
                 const SizedBox(width: 5),
-                Text(urgency, style: TextStyle(color: _urgencyColor(urgency), fontWeight: FontWeight.w700, fontSize: 11)),
+                Text(urgency, style: TextStyle(color: urgency == 'SOS' ? Colors.white : _urgencyColor(urgency), fontWeight: FontWeight.w700, fontSize: 11)),
               ]),
             ),
           ]),
@@ -2798,6 +2834,9 @@ class RequestCard extends StatelessWidget {
               IconButton(icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20), tooltip: 'Delete request', onPressed: () => _deleteRequest(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
             if (!isRequester && status == 'open')
               IconButton(icon: Icon(Icons.flag_outlined, color: kTextSecondary, size: 18), tooltip: 'Report user', onPressed: () => _reportUser(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+            const SizedBox(width: 6),
+            if (status == 'claimed' && (isRequester || isVolunteer))
+              _CallButton(requestId: docId),
             const SizedBox(width: 6),
             if (status == 'claimed' && (isRequester || isVolunteer))
               IconButton(icon: Icon(Icons.chat_bubble_outline_rounded, color: kAccent, size: 20), tooltip: 'Open chat', onPressed: () => _openChat(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
@@ -2850,6 +2889,85 @@ Future<Map<String, String>> _authHeaders() async {
     return {'Authorization': 'Bearer $idToken'};
   } catch (_) {
     return {};
+  }
+}
+
+// Phone numbers live in users/{uid}/private/data, which firestore.rules only lets
+// the owner read — so the Worker (service account) fetches the matched partner's
+// number and only for the two participants on a claimed request. We cache per
+// request so the feed doesn't re-hit the network on every rebuild.
+final Map<String, String?> _peerPhoneCache = <String, String?>{};
+
+Future<String?> _fetchPeerPhone(String requestId) async {
+  if (_peerPhoneCache.containsKey(requestId)) return _peerPhoneCache[requestId];
+  _peerPhoneCache[requestId] = null;
+  if (FirebaseAuth.instance.currentUser == null) return null;
+  try {
+    final resp = await http.post(
+      Uri.parse('$kServerBaseUrl/phone'),
+      headers: {
+        'Content-Type': 'application/json',
+        ...await _authHeaders(),
+      },
+      body: jsonEncode({'requestId': requestId}),
+    );
+    if (resp.statusCode != 200) return null;
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final phone = ((data['phone'] as String?) ?? '').trim();
+    _peerPhoneCache[requestId] = phone.isEmpty ? null : phone;
+    return _peerPhoneCache[requestId];
+  } catch (_) {
+    return null;
+  }
+}
+
+// Auto-launches the dialer with the number already filled in. Uses the system
+// phone app on iOS/Android; on web it hands off to whatever the browser can dial.
+Future<void> _dialPhone(BuildContext context, String phone) async {
+  final digits = phone.replaceAll(RegExp(r'[^0-9+*#]'), '');
+  if (digits.isEmpty) return;
+  try {
+    final ok = await launchUrl(Uri(scheme: 'tel', path: digits), mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) _showMessageDialog(context, "Couldn't open the phone app.");
+  } catch (_) {
+    if (context.mounted) _showMessageDialog(context, "Couldn't open the phone app.");
+  }
+}
+
+// Shown only after a request is claimed AND the partner has saved a phone number.
+// Stays invisible for everyone else, and once resolved it keeps that answer.
+class _CallButton extends StatefulWidget {
+  final String requestId;
+  const _CallButton({required this.requestId});
+  @override
+  State<_CallButton> createState() => _CallButtonState();
+}
+
+class _CallButtonState extends State<_CallButton> {
+  Future<String?>? _phone;
+
+  @override
+  void initState() {
+    super.initState();
+    _phone = _fetchPeerPhone(widget.requestId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _phone,
+      builder: (context, snap) {
+        final phone = snap.data;
+        if (phone == null || phone.isEmpty) return const SizedBox.shrink();
+        return IconButton(
+          tooltip: 'Call',
+          icon: Icon(Icons.phone_rounded, color: kAccent, size: 20),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: () => _dialPhone(context, phone),
+        );
+      },
+    );
   }
 }
 
@@ -2988,7 +3106,7 @@ void _showPostRequestSheet(BuildContext context) {
   String selectedCategory = 'Grocery Run';
   String selectedUrgency = 'Low';
   final categories = ['Grocery Run', 'Lawn Care', 'Moving Help', 'Pet Care', 'Meal Prep', 'Give a Ride', 'Other'];
-  final urgencies = ['Low', 'Medium', 'High'];
+  final urgencies = ['Low', 'Medium', 'High', 'SOS'];
 
   showModalBottomSheet(
     context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
@@ -3026,7 +3144,7 @@ void _showPostRequestSheet(BuildContext context) {
         const SizedBox(height: 8),
         Row(children: urgencies.map((u) {
           final selected = selectedUrgency == u;
-          Color color; switch (u) { case 'High': color = Colors.red; break; case 'Medium': color = Colors.orange; break; default: color = kAccent; }
+          Color color; switch (u) { case 'SOS': color = kDangerFill; break; case 'High': color = Colors.red; break; case 'Medium': color = Colors.orange; break; default: color = kAccent; }
           return Expanded(child: GestureDetector(
             onTap: () => setModalState(() => selectedUrgency = u),
             child: Container(
@@ -3320,6 +3438,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Text(widget.otherName, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700, fontSize: 17)),
         ),
         actions: [
+          if (_blocked == null) _CallButton(requestId: widget.chatId),
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance.collection('requests').doc(widget.chatId).snapshots(),
             builder: (context, snap) {
