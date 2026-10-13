@@ -4620,7 +4620,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _language = 'English';
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.6.8';
+  String _appVersion = 'bv0.6.9';
 
   @override
   void initState() {
