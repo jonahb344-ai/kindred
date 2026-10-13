@@ -1074,7 +1074,7 @@ function altstoreSource() {
     iconURL:
       'https://raw.githubusercontent.com/jonahb344-ai/kindred/main/assets/icon/app_icon.png',
     tintColor: '63918B',
-    size: 16990458,
+    size: 16990466,
   };
   const payload = {
     name: 'Kindred',
