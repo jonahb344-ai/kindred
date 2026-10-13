@@ -1,20 +1,13 @@
 name: Auto Release
 
-# Publishes a GitHub release (signed APK + unsigned IPA) automatically using the
-# built-in GITHUB_TOKEN, so no personal token is needed. Triggered by pushing a
-# version tag, e.g.:
+# Publishes a GitHub release (unsigned IPA) automatically using the built-in
+# GITHUB_TOKEN, so no personal token or repository secrets are needed.
+# Triggered by pushing a version tag, e.g.:
 #   git tag v0.6.9 && git push origin v0.6.9
 #
-# The APK is signed with the production keystore supplied via repository secrets
-# (Settings -> Secrets and variables -> Actions):
-#   KEYSTORE_BASE64     base64 -i android/app/upload-keystore.jks | tr -d '\n'
-#   KEYSTORE_PASSWORD   value of storePassword in android/key.properties
-#   KEY_PASSWORD        value of keyPassword   in android/key.properties
-#   KEY_ALIAS           value of keyAlias      in android/key.properties
-#
-# The iOS build strips the Mac-only dependency_overrides (Firebase 10.x pins for
-# the local Xcode 15.2) so pub resolves the modern versions, same as ios.yml.
-# The resulting .ipa is unsigned (re-signed by AltStore/Sideloadly at install).
+# The .ipa is unsigned (re-signed by AltStore/Sideloadly at install) and is what
+# the AltStore source (https://kindred.jonahb344.workers.dev/altstore.json)
+# points at for iPhone installs.
 
 on:
   workflow_dispatch:
@@ -26,62 +19,6 @@ permissions:
   contents: write
 
 jobs:
-  android:
-    name: Android signed APK
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Version from pubspec
-        run: |
-          echo "VERSION=$(sed -nE 's/^version: ([0-9.]+).*/\1/p' pubspec.yaml)" >> "$GITHUB_ENV"
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Strip Mac-only dependency overrides
-        run: |
-          python3 - <<'PY'
-          import re, pathlib
-          p = pathlib.Path('pubspec.yaml')
-          s = p.read_text()
-          s = re.sub(r'(?ms)^dependency_overrides:.*?(?=^\S)', '', s)
-          p.write_text(s)
-          assert 'dependency_overrides' not in s, 'failed to strip overrides'
-          PY
-
-      - name: Restore Android signing keystore
-        run: |
-          set -eux
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
-          cat > android/key.properties <<'EOF'
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=upload-keystore.jks
-          EOF
-
-      - name: Pub get
-        run: flutter pub get
-
-      - name: Build APK
-        run: flutter build apk --release
-
-      - name: Rename APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk kindred.apk
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kindred-apk
-          path: kindred.apk
-          if-no-files-found: error
-          retention-days: 30
-
   ios:
     name: iOS unsigned IPA
     runs-on: macos-latest
@@ -139,7 +76,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: [android, ios]
+    needs: ios
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -156,12 +93,6 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
-      - name: Download APK artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: kindred-apk
-          path: kindred-apk
-
       - name: Download IPA artifact
         uses: actions/download-artifact@v4
         with:
@@ -176,9 +107,7 @@ jobs:
           body: |
             Automatic release built by GitHub Actions.
 
-            - **Android**: `kindred.apk` (signed with the production keystore) — install directly or via the README button.
             - **iOS**: `Kindred-${{ env.VERSION }}-unsigned.ipa` — sideload with AltStore/Sideloadly (unsigned by design; AltStore signs it on install). Refresh via the AltStore source at `https://kindred.jonahb344.workers.dev/altstore.json`.
           files: |
-            kindred-apk/kindred.apk
             Kindred-unsigned-ipa/Kindred-${{ env.VERSION }}-unsigned.ipa
           fail_on_unmatched_files: true
