@@ -1882,7 +1882,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
   int _step = 0;
 
   final List<Map<String, dynamic>> _steps = [
-    {'icon': Icons.home_rounded, 'title': 'Home Screen', 'desc': 'See your Kindness Score, level progress, and log acts of kindness. Claude AI verifies every photo you submit.'},
+    {'icon': Icons.home_rounded, 'title': 'Home Screen', 'desc': 'See your Kindness Score, level progress, and log acts of kindness. AI verifies every photo you submit.'},
     {'icon': Icons.handshake_rounded, 'title': 'Help Others', 'desc': 'Spot requests on the nearby map or in the feed. Tap Help to volunteer. You earn points when the requester marks it complete.'},
     {'icon': Icons.add_circle_outline_rounded, 'title': 'Post a Request', 'desc': 'Need help? Tap Post Request, choose a category, describe what you need, and set the urgency level.'},
     {'icon': Icons.chat_bubble_outline_rounded, 'title': 'Messages', 'desc': 'When someone claims your request, a chat opens automatically. Use the Messages tab to coordinate and stay in touch.'},
@@ -2693,7 +2693,15 @@ class RequestCard extends StatelessWidget {
       actionLabel: 'Send',
     );
 
-    await FirebaseFirestore.instance.collection('requests').doc(docId).update({'status': 'completed'});
+    await FirebaseFirestore.instance.collection('requests').doc(docId).update({
+      'status': 'completed',
+      // The requester is the person who received the help, so completing the
+      // request IS their confirmation that it really happened. This flag is what
+      // makes the act count toward the monthly "Kindest" reward.
+      'completedBy': FirebaseAuth.instance.currentUser?.uid,
+      'recipientConfirmed': true,
+      'recipientConfirmedAt': FieldValue.serverTimestamp(),
+    });
     if (note != null && note.isNotEmpty) {
       await FirebaseFirestore.instance.collection('thank_you_notes').add({
         'fromUid': FirebaseAuth.instance.currentUser?.uid,
@@ -2732,6 +2740,19 @@ class RequestCard extends StatelessWidget {
       _hapticHeavy();
       await _showConfetti(context);
       if (context.mounted) _showMessageDialog(context, 'Marked as complete!');
+    }
+  }
+
+  Future<void> _confirmHelp(BuildContext context) async {
+    // The recipient confirms a volunteer's self-reported completion. Until this
+    // happens the act earns points but is NOT eligible for the monthly reward.
+    await FirebaseFirestore.instance.collection('requests').doc(docId).update({
+      'recipientConfirmed': true,
+      'recipientConfirmedAt': FieldValue.serverTimestamp(),
+    });
+    if (context.mounted) {
+      _hapticHeavy();
+      _showMessageDialog(context, 'Thanks for confirming! This act now counts.');
     }
   }
 
@@ -2826,6 +2847,10 @@ class RequestCard extends StatelessWidget {
           const SizedBox(height: 14),
           Row(children: [
             _StatusBadge(status: status),
+            if (status == 'completed' && data['recipientConfirmed'] == true) ...[
+              const SizedBox(width: 6),
+              Icon(Icons.verified_rounded, size: 16, color: kAccent),
+            ],
             const Spacer(),
             if (status == 'claimed' && volunteerName != null)
               Text(volunteerName, style: TextStyle(fontSize: 12, color: kTextSecondary)),
@@ -2850,6 +2875,8 @@ class RequestCard extends StatelessWidget {
                     boxShadow: kButtonShadow),
                 child: const Center(child: Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13))),
               )),
+            if (isRequester && status == 'completed' && data['recipientConfirmed'] != true)
+              _KindredButton(label: 'Confirm', onPressed: () => _confirmHelp(context), compact: true, fullWidth: false),
           ]),
         ]),
       ),
@@ -2972,7 +2999,7 @@ class _CallButtonState extends State<_CallButton> {
 }
 
 // sends the act description (and optional photo) to the worker for AI verification
-// the worker calls Claude on the server side so the API key stays safe
+// the worker calls the AI on the server side so the API key stays safe
 Future<Map<String, dynamic>> _callVerifyAct(String description, String? imageBase64) async {
   final response = await http.post(
     Uri.parse('$kServerBaseUrl/verify'),
@@ -3368,7 +3395,13 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     try {
-      await FirebaseFirestore.instance.collection('requests').doc(widget.chatId).update({'status': 'completed'});
+      await FirebaseFirestore.instance.collection('requests').doc(widget.chatId).update({
+        'status': 'completed',
+        // The volunteer is completing their own help, so this is NOT a recipient
+        // confirmation. The requester must confirm separately before the act
+        // counts toward the monthly reward.
+        'completedBy': user.uid,
+      });
 
       if (note != null && note.isNotEmpty) {
         await FirebaseFirestore.instance.collection('thank_you_notes').add({
@@ -3402,7 +3435,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await _sendPushNotification(
         requesterId,
         '${user.displayName} finished helping!',
-        'Your $category request was completed.',
+        'Your $category request was completed — open Kindred to confirm it happened.',
         contextId: requestSnap.id,
       );
       await FirebaseFirestore.instance.collection('notifications').add({
@@ -3410,7 +3443,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'requestId': requestSnap.id,
         'fromName': user.displayName,
         'title': 'Request completed!',
-        'body': '${user.displayName} finished helping with $category.',
+        'body': '${user.displayName} finished helping with $category. Confirm it happened.',
         'chatId': null,
         'read': false,
         'createdAt': FieldValue.serverTimestamp(),
@@ -4620,7 +4653,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _language = 'English';
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.6.9';
+  String _appVersion = 'bv0.7.0';
 
   @override
   void initState() {
