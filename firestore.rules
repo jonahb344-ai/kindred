@@ -72,10 +72,18 @@ service cloud.firestore {
         resource.data.status == 'open' || isRequester() || isVolunteer()
       );
       allow update: if signedIn() && (
-        // Either participant completes the request
+        // Either participant completes the request, or the requester later
+        // confirms a volunteer's self-reported completion. A completed act only
+        // counts toward rewards once the RECIPIENT confirms it, and only the
+        // requester can set recipientConfirmed, so a volunteer can never confirm
+        // their own help.
         (isParticipant()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && request.resource.data.status == 'completed')
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'completedBy', 'recipientConfirmed', 'recipientConfirmedAt'])
+          && request.resource.data.status == 'completed'
+          && (request.resource.data.get('recipientConfirmed', false) == false
+              || resource.data.get('recipientConfirmed', false) == true
+              || isRequester()))
         ||
         // A volunteer claims an open request
         (resource.data.status == 'open'
