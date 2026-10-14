@@ -18,6 +18,10 @@
 //   GET  /altstore.json-> AltStore "source" JSON so the iOS app can be installed/updated
 //                         directly from AltStore (free-Apple-ID signing) instead of
 //                         re-sideloading the unsigned IPA every 7 days.
+//   GET  /admin/rewards     -> Private "Kindest of the Month" winner picker (?key=ADMIN_SECRET);
+//                             404 unless ADMIN_SECRET is set
+//   POST /admin/rewards/pick-> Confirm a winner (writes badge + notifies them)
+//   POST /admin/nominate    -> Manually re-run the monthly shortlist (JSON; x-admin-secret)
 //
 // Setup:
 //   1. Free Cloudflare account (no credit card).
@@ -66,6 +70,12 @@ export default {
     if (request.method === 'POST' && url.pathname === '/admin/nominate') {
       return handleAdminNominate(request, env);
     }
+    if (request.method === 'GET' && url.pathname === '/admin/rewards') {
+      return handleAdminRewards(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/admin/rewards/pick') {
+      return handleAdminPick(request, env);
+    }
     return json({ error: 'Not found' }, 404);
   },
 
@@ -87,6 +97,9 @@ function json(obj, status) {
     },
   });
 }
+
+// Public base URL of this Worker (used to build admin links in the monthly email).
+const SELF_URL = 'https://kindred.jonahb344.workers.dev';
 
 // AI/FCM/Firestore errors can echo back request ids, prompt text, project
 // names or config state, which is free reconnaissance for anyone holding a valid
@@ -373,6 +386,11 @@ const TERMS_PAGE = `<!DOCTYPE html>
     <h2>4. Points, levels, and badges</h2>
     <p>Points and badges reward kindness. They have no monetary value and cannot be bought,
     sold, or transferred. We may adjust or correct points if something goes wrong.</p>
+    <p>Each month we may recognize one kind neighbor as "Kindest of the Month" and send them a
+    small thank-you gift to the address or email they provide. This recognition is a gift, not a
+    contest or promotion: there is no entry fee, no purchase necessary, and no guarantee of
+    winning. We choose recipients at our discretion based on confirmed acts of kindness, and we
+    may change or end the program at any time.</p>
 
     <h2>4a. There is nothing to pay for</h2>
     <p>Kindred is free. We do not sell anything, offer subscriptions, take payments, or show
@@ -768,29 +786,49 @@ async function sendMonthlyEmail(env, body) {
   }
 }
 
-// Rank by confirmed acts, then by number of distinct neighbors helped, and
-// email up to 5 candidates. Returns a summary (also used by the admin route).
-async function runMonthlyNomination(env) {
+// The previous calendar month, or a specific "YYYY-MM" if one is passed in.
+function nominationWindow(monthParam) {
+  let year;
+  let monthIdx;
+  if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+    year = Number(monthParam.slice(0, 4));
+    monthIdx = Number(monthParam.slice(5, 7)) - 1;
+  } else {
+    const now = new Date();
+    year = now.getUTCFullYear();
+    monthIdx = now.getUTCMonth() - 1;
+    if (monthIdx < 0) {
+      monthIdx += 12;
+      year -= 1;
+    }
+  }
+  return {
+    start: Date.UTC(year, monthIdx, 1),
+    end: Date.UTC(year, monthIdx + 1, 1),
+    month: year + '-' + String(monthIdx + 1).padStart(2, '0'),
+  };
+}
+
+// Rank by confirmed acts, then by number of distinct neighbors helped.
+async function aggregateNominations(env, monthParam) {
   const sa = getServiceAccount(env);
-  if (!sa) return { sent: false, candidates: [], error: 'no service account' };
+  if (!sa) return { error: 'no_service_account' };
   const oauth = await getOAuthToken(sa);
-  const now = new Date();
-  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
-  const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const win = nominationWindow(monthParam);
 
   let rows = [];
   try {
     rows = await queryConfirmedRequests(oauth, sa.project_id);
   } catch (e) {
-    return { sent: false, candidates: [] };
+    return { error: 'query_failed' };
   }
 
   const inWindow = rows.filter(
     (r) =>
       r.status === 'completed' &&
       r.recipientConfirmedAt !== null &&
-      r.recipientConfirmedAt >= start &&
-      r.recipientConfirmedAt < end
+      r.recipientConfirmedAt >= win.start &&
+      r.recipientConfirmedAt < win.end
   );
 
   const byVolunteer = new Map();
@@ -813,42 +851,9 @@ async function runMonthlyNomination(env) {
     .sort((a, b) => b.acts - a.acts || b.recipients.size - a.recipients.size)
     .slice(0, 5);
 
-  if (!ranked.length) return { sent: false, candidates: [] };
-
-  const startStr = new Date(start).toISOString().slice(0, 10);
-  const endStr = new Date(end - 1).toISOString().slice(0, 10);
-  const lines = ranked.map(
-    (e, i) =>
-      i +
-      1 +
-      '. ' +
-      e.name +
-      ' — ' +
-      e.acts +
-      ' confirmed act' +
-      (e.acts === 1 ? '' : 's') +
-      ', helped ' +
-      e.recipients.size +
-      ' neighbor' +
-      (e.recipients.size === 1 ? '' : 's') +
-      (e.cats.size ? ' (' + [...e.cats].join(', ') + ')' : '')
-  );
-  const body =
-    'Kindred — Kindest of the Month candidates\n' +
-    'Window: ' +
-    startStr +
-    ' to ' +
-    new Date(end - 1).toISOString().slice(0, 10) +
-    '\n\n' +
-    lines.join('\n') +
-    '\n\nEvery act above was confirmed by the person who received the help.\n' +
-    'Pick a winner and email them the $20 gift card.';
-
-  await sendMonthlyEmail(env, body);
-
   return {
-    sent: true,
-    window: { start: new Date(start).toISOString(), end: new Date(end).toISOString() },
+    sa,
+    window: win,
     candidates: ranked.map((e) => ({
       uid: e.uid,
       name: e.name,
@@ -856,6 +861,65 @@ async function runMonthlyNomination(env) {
       neighborsHelped: e.recipients.size,
       categories: [...e.cats],
     })),
+  };
+}
+
+// Cron entry point: aggregate + email the shortlist to the admin.
+async function runMonthlyNomination(env, monthParam) {
+  const agg = await aggregateNominations(env, monthParam);
+  if (agg.error || !agg.candidates.length) {
+    return { sent: false, candidates: agg.candidates || [] };
+  }
+
+  const start = new Date(agg.window.start).toISOString().slice(0, 10);
+  const end = new Date(agg.window.end - 1).toISOString().slice(0, 10);
+  const lines = agg.candidates.map(
+    (c, i) =>
+      i +
+      1 +
+      '. ' +
+      c.name +
+      ' — ' +
+      c.confirmedActs +
+      ' confirmed act' +
+      (c.confirmedActs === 1 ? '' : 's') +
+      ', helped ' +
+      c.neighborsHelped +
+      ' neighbor' +
+      (c.neighborsHelped === 1 ? '' : 's') +
+      (c.categories.length ? ' (' + c.categories.join(', ') + ')' : '')
+  );
+  const adminLink = env.ADMIN_SECRET
+    ? '\n\nReview and pick a winner here:\n' +
+      SELF_URL +
+      '/admin/rewards?key=' +
+      encodeURIComponent(env.ADMIN_SECRET)
+    : '';
+
+  const body =
+    'Kindred — Kindest of the Month candidates (' +
+    agg.window.month +
+    ')\n' +
+    'Window: ' +
+    start +
+    ' to ' +
+    end +
+    '\n\n' +
+    lines.join('\n') +
+    '\n\nEvery act above was confirmed by the person who received the help.' +
+    '\nPick a winner and send them the $20 gift card.' +
+    adminLink;
+
+  await sendMonthlyEmail(env, body);
+
+  return {
+    sent: true,
+    month: agg.window.month,
+    window: {
+      start: new Date(agg.window.start).toISOString(),
+      end: new Date(agg.window.end).toISOString(),
+    },
+    candidates: agg.candidates,
   };
 }
 
@@ -868,6 +932,273 @@ async function handleAdminNominate(request, env) {
   }
   const result = await runMonthlyNomination(env);
   return json({ ok: true, ...result });
+}
+
+// ─── /admin/rewards (private winner-picker page) ──────────────────────────────
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function monthLabel(month) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(month));
+  if (!m) return String(month);
+  const name = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December'][Number(m[2]) - 1];
+  return (name || m[2]) + ' ' + m[1];
+}
+
+const ADMIN_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Content-Security-Policy':
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Cache-Control': 'no-store',
+};
+
+function adminHtmlPage(body) {
+  return new Response(body, { status: 200, headers: ADMIN_HEADERS });
+}
+
+function adminRewardsHtml(env, agg, winnerName) {
+  const month = agg.window.month;
+  const label = monthLabel(month);
+  const key = escapeHtml(env.ADMIN_SECRET);
+  const winner = winnerName
+    ? '<div class="winner">Confirmed winner: <b>' + escapeHtml(winnerName) + '</b></div>'
+    : '';
+  let list;
+  if (!agg.candidates.length) {
+    list =
+      '<p class="empty">No recipient-confirmed acts were recorded in ' +
+      escapeHtml(label) +
+      '.</p>';
+  } else {
+    list = agg.candidates
+      .map(
+        (c) =>
+          '<div class="row">' +
+          '<div class="who"><b>' +
+          escapeHtml(c.name) +
+          '</b><span>' +
+          c.confirmedActs +
+          ' confirmed act' +
+          (c.confirmedActs === 1 ? '' : 's') +
+          ' &middot; helped ' +
+          c.neighborsHelped +
+          ' neighbor' +
+          (c.neighborsHelped === 1 ? '' : 's') +
+          (c.categories.length ? '<br>' + escapeHtml(c.categories.join(', ')) : '') +
+          '</span></div>' +
+          '<form method="POST" action="/admin/rewards/pick">' +
+          '<input type="hidden" name="key" value="' + key + '">' +
+          '<input type="hidden" name="month" value="' + escapeHtml(month) + '">' +
+          '<input type="hidden" name="uid" value="' + escapeHtml(c.uid) + '">' +
+          '<input type="hidden" name="name" value="' + escapeHtml(c.name) + '">' +
+          '<button type="submit">Pick</button>' +
+          '</form>' +
+          '</div>'
+      )
+      .join('');
+  }
+  return (
+    '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>Kindest of the Month — ' + escapeHtml(label) + '</title><style>' +
+    "body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f4f6f6;color:#1c1c1e;}" +
+    '.wrap{max-width:640px;margin:0 auto;padding:40px 20px 80px;}' +
+    'h1{font-size:24px;margin:0 0 4px;}' +
+    '.sub{color:#6b7280;font-size:14px;margin-bottom:24px;}' +
+    '.winner{background:#e7f2ef;border:1px solid rgba(99,145,139,.33);color:#2f4f4a;border-radius:14px;padding:12px 16px;margin-bottom:20px;font-size:15px;}' +
+    '.row{background:#fff;border:1px solid #e4e7e7;border-radius:16px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 8px 30px -22px rgba(0,0,0,.5);}' +
+    '.who{font-size:15px;line-height:1.5;}' +
+    '.who b{display:block;font-size:16px;margin-bottom:2px;}' +
+    '.who span{color:#6b7280;font-size:13.5px;}' +
+    'button{background:linear-gradient(135deg,#3f635e,#527a75);color:#fff;border:0;border-radius:999px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;}' +
+    'button:active{transform:translateY(1px);}' +
+    '.empty{color:#6b7280;}' +
+    '</style></head><body><div class="wrap">' +
+    '<h1>Kindest of the Month</h1>' +
+    '<div class="sub">' +
+    escapeHtml(label) +
+    ' &middot; each act was confirmed by the person who received the help</div>' +
+    winner +
+    list +
+    '</div></body></html>'
+  );
+}
+
+function adminPickHtml(env, month, name) {
+  return (
+    '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>Winner confirmed — Kindred</title><style>' +
+    "body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f4f6f6;color:#1c1c1e;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}" +
+    '.card{background:#fff;border-radius:24px;padding:44px 32px;max-width:440px;width:100%;text-align:center;box-shadow:0 20px 60px -30px rgba(0,0,0,.5);}' +
+    'h1{font-size:22px;margin:0 0 10px;}' +
+    'p{color:#6b7280;font-size:15px;line-height:1.7;margin:0 0 22px;}' +
+    'b{color:#2f4f4a;}a{display:inline-block;background:linear-gradient(135deg,#3f635e,#527a75);color:#fff;text-decoration:none;border-radius:999px;padding:12px 22px;font-weight:700;font-size:14px;}' +
+    '</style></head><body><div class="card">' +
+    '<h1>Winner confirmed</h1><p><b>' +
+    escapeHtml(name) +
+    '</b> is Kindest of the Month for ' +
+    escapeHtml(monthLabel(month)) +
+    ". They got a badge and an in-app notification. Now send them the $20 gift card.</p>" +
+    '<a href="/admin/rewards?key=' +
+    escapeHtml(env.ADMIN_SECRET) +
+    '&amp;month=' +
+    escapeHtml(month) +
+    '">Back to rewards</a>' +
+    '</div></body></html>'
+  );
+}
+
+async function handleAdminRewards(request, env) {
+  if (!env.ADMIN_SECRET) return json({ error: 'Not found' }, 404);
+  const url = new URL(request.url);
+  if ((url.searchParams.get('key') || '') !== env.ADMIN_SECRET) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const monthParam = url.searchParams.get('month') || undefined;
+  const agg = await aggregateNominations(env, monthParam);
+  if (agg.error) {
+    return adminHtmlPage(
+      '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px">' +
+        '<p>Could not load nominations (' +
+        escapeHtml(agg.error) +
+        '). Try again in a moment.</p></body></html>'
+    );
+  }
+  const oauth = await getOAuthToken(agg.sa);
+  const winner = await readFirestoreDoc(
+    oauth,
+    agg.sa.project_id,
+    'rewards/' + encodeURIComponent(agg.window.month)
+  );
+  return adminHtmlPage(
+    adminRewardsHtml(env, agg, winner ? fieldValue(winner, 'winnerName') : '')
+  );
+}
+
+// Records the chosen winner, gives them a badge, and notifies them in the app.
+async function handleAdminPick(request, env) {
+  if (!env.ADMIN_SECRET) return json({ error: 'Not found' }, 404);
+
+  let form;
+  try {
+    form = await request.formData();
+  } catch (e) {
+    return json({ error: 'Invalid form' }, 400);
+  }
+  if (String(form.get('key') || '') !== env.ADMIN_SECRET) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+  const month = String(form.get('month') || '');
+  const uid = String(form.get('uid') || '');
+  const name = String(form.get('name') || '').slice(0, 120);
+  if (!/^\d{4}-\d{2}$/.test(month) || !uid) {
+    return json({ error: 'Missing month or uid' }, 400);
+  }
+
+  const sa = getServiceAccount(env);
+  if (!sa) {
+    return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
+  }
+
+  try {
+    const oauth = await getOAuthToken(sa);
+    const base = 'projects/' + sa.project_id + '/databases/(default)/documents/';
+    const rewardName = base + 'rewards/' + month;
+    const userName = base + 'users/' + uid;
+
+    // One commit: record the reward, stamp the badge on the winner's profile, and
+    // append the month to their (deduped) history array. The service account
+    // bypasses firestore.rules, so no rule change is needed to touch another user.
+    const writes = [
+      {
+        update: {
+          name: rewardName,
+          fields: {
+            month: { stringValue: month },
+            winnerId: { stringValue: uid },
+            winnerName: { stringValue: name },
+            chosenAt: { timestampValue: new Date().toISOString() },
+          },
+        },
+        updateMask: { fieldPaths: ['month', 'winnerId', 'winnerName', 'chosenAt'] },
+      },
+      {
+        update: {
+          name: userName,
+          fields: {
+            kindestMonth: { stringValue: month },
+            kindestOfMonth: { booleanValue: true },
+          },
+        },
+        updateMask: { fieldPaths: ['kindestMonth', 'kindestOfMonth'] },
+      },
+      {
+        transform: {
+          document: userName,
+          fieldTransforms: [
+            {
+              fieldPath: 'kindestMonths',
+              appendMissingElements: { values: [{ stringValue: month }] },
+            },
+          ],
+        },
+      },
+    ];
+
+    const resp = await fetch(
+      'https://firestore.googleapis.com/v1/projects/' +
+        sa.project_id +
+        '/databases/(default)/documents:commit',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ writes }),
+      }
+    );
+    if (!resp.ok) {
+      const t = (await resp.text()).slice(0, 200);
+      return serverError('Could not confirm the winner', 502, 'commit ' + resp.status + ' ' + t);
+    }
+
+    // Best effort: let the winner know. Never fail the confirmation over this.
+    try {
+      const title = "You're Kindest of the Month!";
+      const body =
+        'Thank you for making the neighborhood kinder. Open Kindred to see your badge.';
+      const priv = await readFirestoreDoc(
+        oauth,
+        sa.project_id,
+        'users/' + encodeURIComponent(uid) + '/private/data'
+      );
+      const token = priv && priv.fcmToken && priv.fcmToken.stringValue;
+      if (token) await sendFcm(sa, token, title, body);
+      await writeNotification(sa, { toUid: uid, fromName: 'Kindred', title, body });
+    } catch (e) {
+      // notification is a nice-to-have
+    }
+
+    return adminHtmlPage(adminPickHtml(env, month, name));
+  } catch (e) {
+    return serverError('Could not confirm the winner', 500, e && e.message);
+  }
 }
 
 // ─── /verify ─────────────────────────────────────────────────────────────────
