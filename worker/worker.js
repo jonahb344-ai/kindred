@@ -701,7 +701,14 @@ async function writeNotification(sa, notif) {
     {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ writes: [{ document: { name, fields } }] }),
+      body: JSON.stringify({
+        writes: [
+          {
+            update: { name, fields },
+            updateMask: { fieldPaths: Object.keys(fields) },
+          },
+        ],
+      }),
     }
   );
   return resp.ok;
@@ -760,7 +767,7 @@ async function queryConfirmedRequests(token, projectId) {
       requesterId: fsStr(f, 'requesterId'),
       category: fsStr(f, 'category'),
       status: fsStr(f, 'status'),
-      recipientConfirmedAt: fsTs(f, 'recipientConfirmedAt'),
+      recipientConfirmedAt: fsTsMs(f, 'recipientConfirmedAt'),
     });
   }
   return out;
@@ -768,6 +775,14 @@ async function queryConfirmedRequests(token, projectId) {
 
 async function sendMonthlyEmail(env, body) {
   const email = env.REWARD_NOTIFY_EMAIL || 'jonahb344+kindred@gmail.com';
+  const cc = env.REWARD_CC_EMAIL || '';
+  const form = {
+    _captcha: 'false',
+    _template: 'table',
+    _subject: 'Kindred - Kindest of the Month candidates',
+    message: body,
+  };
+  if (cc) form._cc = cc;
   try {
     await fetch('https://formsubmit.co/' + encodeURIComponent(email), {
       method: 'POST',
@@ -777,12 +792,7 @@ async function sendMonthlyEmail(env, body) {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36',
         'Referer': 'https://kindred.app/',
       },
-      body: new URLSearchParams({
-        _captcha: 'false',
-        _template: 'table',
-        _subject: 'Kindred - Kindest of the Month candidates',
-        message: body,
-      }).toString(),
+      body: new URLSearchParams(form).toString(),
     });
   } catch (e) {
     // best effort — never throw out of the cron
@@ -871,7 +881,7 @@ async function aggregateNominations(env, monthParam) {
 async function runMonthlyNomination(env, monthParam) {
   const agg = await aggregateNominations(env, monthParam);
   if (agg.error || !agg.candidates.length) {
-    return { sent: false, candidates: agg.candidates || [] };
+    return { sent: false, candidates: agg.candidates || [], link: '' };
   }
 
   const start = new Date(agg.window.start).toISOString().slice(0, 10);
@@ -893,17 +903,17 @@ async function runMonthlyNomination(env, monthParam) {
       (c.categories.length ? ' (' + c.categories.join(', ') + ')' : '')
   );
   let adminLink = '';
+  let pickerLink = '';
   if (env.ADMIN_SECRET) {
-    let link = '';
     if (agg.sa) {
       const token = await createAdminToken(agg.sa, agg.window.month);
-      if (token) link = SELF_URL + '/admin/rewards?t=' + token;
+      if (token) pickerLink = SELF_URL + '/admin/rewards?t=' + token;
     }
-    if (!link) {
+    if (!pickerLink) {
       // Minting failed — fall back to the permanent key rather than send a dead link.
-      link = SELF_URL + '/admin/rewards?key=' + encodeURIComponent(env.ADMIN_SECRET);
+      pickerLink = SELF_URL + '/admin/rewards?key=' + encodeURIComponent(env.ADMIN_SECRET);
     }
-    adminLink = '\n\nReview and pick a winner here:\n' + link;
+    adminLink = '\n\nReview and pick a winner here:\n' + pickerLink;
   }
 
   const body =
@@ -930,6 +940,7 @@ async function runMonthlyNomination(env, monthParam) {
       end: new Date(agg.window.end).toISOString(),
     },
     candidates: agg.candidates,
+    link: pickerLink,
   };
 }
 
@@ -1012,7 +1023,14 @@ async function createAdminToken(sa, month) {
       {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ writes: [{ document: { name, fields } }] }),
+        body: JSON.stringify({
+          writes: [
+            {
+              update: { name, fields },
+              updateMask: { fieldPaths: ['month', 'createdAt', 'expiresAt'] },
+            },
+          ],
+        }),
       }
     );
     return resp.ok ? token : null;
