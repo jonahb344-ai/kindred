@@ -18,9 +18,12 @@
 //   GET  /altstore.json-> AltStore "source" JSON so the iOS app can be installed/updated
 //                         directly from AltStore (free-Apple-ID signing) instead of
 //                         re-sideloading the unsigned IPA every 7 days.
-//   GET  /admin/rewards     -> Private "Kindest of the Month" winner picker (?key=ADMIN_SECRET);
-//                             404 unless ADMIN_SECRET is set
-//   POST /admin/rewards/pick-> Confirm a winner (writes badge + notifies them)
+//   GET  /admin/rewards     -> Private "Kindest of the Month" winner picker.
+//                             Emailed links use a single-use, 30-day token (?t=...);
+//                             ?key=ADMIN_SECRET still works as the master fallback.
+//                             404 unless ADMIN_SECRET is set.
+//   POST /admin/rewards/pick-> Confirm a winner (writes badge + notifies them);
+//                             consumes the emailed token.
 //   POST /admin/nominate    -> Manually re-run the monthly shortlist (JSON; x-admin-secret)
 //
 // Setup:
@@ -889,12 +892,19 @@ async function runMonthlyNomination(env, monthParam) {
       (c.neighborsHelped === 1 ? '' : 's') +
       (c.categories.length ? ' (' + c.categories.join(', ') + ')' : '')
   );
-  const adminLink = env.ADMIN_SECRET
-    ? '\n\nReview and pick a winner here:\n' +
-      SELF_URL +
-      '/admin/rewards?key=' +
-      encodeURIComponent(env.ADMIN_SECRET)
-    : '';
+  let adminLink = '';
+  if (env.ADMIN_SECRET) {
+    let link = '';
+    if (agg.sa) {
+      const token = await createAdminToken(agg.sa, agg.window.month);
+      if (token) link = SELF_URL + '/admin/rewards?t=' + token;
+    }
+    if (!link) {
+      // Minting failed — fall back to the permanent key rather than send a dead link.
+      link = SELF_URL + '/admin/rewards?key=' + encodeURIComponent(env.ADMIN_SECRET);
+    }
+    adminLink = '\n\nReview and pick a winner here:\n' + link;
+  }
 
   const body =
     'Kindred — Kindest of the Month candidates (' +
@@ -969,14 +979,115 @@ const ADMIN_HEADERS = {
   'Cache-Control': 'no-store',
 };
 
+// Emailed picker links carry a random token, not the permanent ADMIN_SECRET, so a
+// forwarded/leaked email can't be replayed forever and the URL has no long-lived
+// secret in it. Tokens live in adminTokens/{token} (a collection firestore.rules
+// keeps server-only) and expire / get consumed on the first pick.
+const ADMIN_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function randomToken() {
+  const a = new Uint8Array(24);
+  crypto.getRandomValues(a);
+  let s = '';
+  for (const b of a) s += b.toString(16).padStart(2, '0');
+  return s;
+}
+
+// Mint a single-use token for this month's picker. Returns the token, or null.
+async function createAdminToken(sa, month) {
+  try {
+    const oauth = await getOAuthToken(sa);
+    const token = randomToken();
+    const name =
+      'projects/' + sa.project_id + '/databases/(default)/documents/adminTokens/' + token;
+    const fields = {
+      month: { stringValue: month || '' },
+      createdAt: { timestampValue: new Date().toISOString() },
+      expiresAt: { timestampValue: new Date(Date.now() + ADMIN_TOKEN_TTL_MS).toISOString() },
+    };
+    const resp = await fetch(
+      'https://firestore.googleapis.com/v1/projects/' +
+        sa.project_id +
+        '/databases/(default)/documents:commit',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ writes: [{ document: { name, fields } }] }),
+      }
+    );
+    return resp.ok ? token : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Validate an emailed token: exists, not expired. Returns { sa, oauth } or null.
+async function adminTokenInfo(env, token) {
+  if (!token || !/^[a-f0-9]{16,64}$/.test(token)) return null;
+  const sa = getServiceAccount(env);
+  if (!sa) return null;
+  try {
+    const oauth = await getOAuthToken(sa);
+    const fields = await readFirestoreDoc(
+      oauth,
+      sa.project_id,
+      'adminTokens/' + encodeURIComponent(token)
+    );
+    if (!fields) return null;
+    const exp = fsTsMs(fields, 'expiresAt');
+    if (exp === null || exp < Date.now()) return null;
+    return { sa, oauth };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Burn the token after a successful pick so the link can't be reused.
+async function consumeAdminToken(sa, oauth, token) {
+  try {
+    const name =
+      'projects/' + sa.project_id + '/databases/(default)/documents/adminTokens/' + token;
+    await fetch(
+      'https://firestore.googleapis.com/v1/projects/' +
+        sa.project_id +
+        '/databases/(default)/documents:commit',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ writes: [{ delete: name }] }),
+      }
+    );
+  } catch (e) {
+    // best effort — an unconsumed token still expires on its own
+  }
+}
+
+function adminExpiredPage() {
+  const body =
+    '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>Link expired - Kindred</title><style>' +
+    "body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f4f6f6;color:#1c1c1e;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}" +
+    '.card{background:#fff;border-radius:24px;padding:44px 32px;max-width:440px;width:100%;text-align:center;box-shadow:0 20px 60px -30px rgba(0,0,0,.5);}' +
+    'h1{font-size:22px;margin:0 0 10px;}p{color:#6b7280;font-size:15px;line-height:1.7;margin:0;}' +
+    '</style></head><body><div class="card">' +
+    '<h1>This link has expired</h1>' +
+    '<p>Admin picker links are single-use and expire after 30 days. Open the most ' +
+    'recent &ldquo;Kindest of the Month" email for a fresh one.</p></div></body></html>';
+  return new Response(body, { status: 401, headers: ADMIN_HEADERS });
+}
+
 function adminHtmlPage(body) {
   return new Response(body, { status: 200, headers: ADMIN_HEADERS });
 }
 
-function adminRewardsHtml(env, agg, winnerName) {
+function adminRewardsHtml(env, agg, winnerName, cred) {
   const month = agg.window.month;
   const label = monthLabel(month);
-  const key = escapeHtml(env.ADMIN_SECRET);
+  const credField =
+    cred && cred.t
+      ? '<input type="hidden" name="t" value="' + escapeHtml(cred.t) + '">'
+      : '<input type="hidden" name="key" value="' + escapeHtml((cred && cred.key) || '') + '">';
   const winner = winnerName
     ? '<div class="winner">Confirmed winner: <b>' + escapeHtml(winnerName) + '</b></div>'
     : '';
@@ -1004,7 +1115,7 @@ function adminRewardsHtml(env, agg, winnerName) {
           (c.categories.length ? '<br>' + escapeHtml(c.categories.join(', ')) : '') +
           '</span></div>' +
           '<form method="POST" action="/admin/rewards/pick">' +
-          '<input type="hidden" name="key" value="' + key + '">' +
+          credField +
           '<input type="hidden" name="month" value="' + escapeHtml(month) + '">' +
           '<input type="hidden" name="uid" value="' + escapeHtml(c.uid) + '">' +
           '<input type="hidden" name="name" value="' + escapeHtml(c.name) + '">' +
@@ -1041,7 +1152,7 @@ function adminRewardsHtml(env, agg, winnerName) {
   );
 }
 
-function adminPickHtml(env, month, name) {
+function adminPickHtml(month, name) {
   return (
     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -1057,11 +1168,6 @@ function adminPickHtml(env, month, name) {
     '</b> is Kindest of the Month for ' +
     escapeHtml(monthLabel(month)) +
     ". They got a badge and an in-app notification. Now send them the $20 gift card.</p>" +
-    '<a href="/admin/rewards?key=' +
-    escapeHtml(env.ADMIN_SECRET) +
-    '&amp;month=' +
-    escapeHtml(month) +
-    '">Back to rewards</a>' +
     '</div></body></html>'
   );
 }
@@ -1069,9 +1175,19 @@ function adminPickHtml(env, month, name) {
 async function handleAdminRewards(request, env) {
   if (!env.ADMIN_SECRET) return json({ error: 'Not found' }, 404);
   const url = new URL(request.url);
-  if ((url.searchParams.get('key') || '') !== env.ADMIN_SECRET) {
-    return json({ error: 'Unauthorized' }, 401);
+  const key = url.searchParams.get('key') || '';
+  const t = url.searchParams.get('t') || '';
+
+  // Accept either the emailed single-use token or the permanent key (fallback).
+  let cred = null;
+  if (key && key === env.ADMIN_SECRET) {
+    cred = { key: key };
+  } else if (t) {
+    const info = await adminTokenInfo(env, t);
+    if (info) cred = { t: t };
   }
+  if (!cred) return adminExpiredPage();
+
   const monthParam = url.searchParams.get('month') || undefined;
   const agg = await aggregateNominations(env, monthParam);
   if (agg.error) {
@@ -1089,7 +1205,7 @@ async function handleAdminRewards(request, env) {
     'rewards/' + encodeURIComponent(agg.window.month)
   );
   return adminHtmlPage(
-    adminRewardsHtml(env, agg, winner ? fieldValue(winner, 'winnerName') : '')
+    adminRewardsHtml(env, agg, winner ? fieldValue(winner, 'winnerName') : '', cred)
   );
 }
 
@@ -1103,8 +1219,13 @@ async function handleAdminPick(request, env) {
   } catch (e) {
     return json({ error: 'Invalid form' }, 400);
   }
-  if (String(form.get('key') || '') !== env.ADMIN_SECRET) {
-    return json({ error: 'Unauthorized' }, 401);
+  const key = String(form.get('key') || '');
+  const t = String(form.get('t') || '');
+  // Accept either the permanent key (fallback) or an unexpired emailed token.
+  let tokenOk = null;
+  if (!(key && key === env.ADMIN_SECRET)) {
+    tokenOk = await adminTokenInfo(env, t);
+    if (!tokenOk) return adminExpiredPage();
   }
   const month = String(form.get('month') || '');
   const uid = String(form.get('uid') || '');
@@ -1174,9 +1295,16 @@ async function handleAdminPick(request, env) {
       }
     );
     if (!resp.ok) {
-      const t = (await resp.text()).slice(0, 200);
-      return serverError('Could not confirm the winner', 502, 'commit ' + resp.status + ' ' + t);
+      const detail = (await resp.text()).slice(0, 200);
+      return serverError(
+        'Could not confirm the winner',
+        502,
+        'commit ' + resp.status + ' ' + detail
+      );
     }
+
+    // Consume the emailed link so it can't be replayed after a pick.
+    if (tokenOk) await consumeAdminToken(tokenOk.sa, tokenOk.oauth, t);
 
     // Best effort: let the winner know. Never fail the confirmation over this.
     try {
@@ -1195,7 +1323,7 @@ async function handleAdminPick(request, env) {
       // notification is a nice-to-have
     }
 
-    return adminHtmlPage(adminPickHtml(env, month, name));
+    return adminHtmlPage(adminPickHtml(month, name));
   } catch (e) {
     return serverError('Could not confirm the winner', 500, e && e.message);
   }

@@ -189,5 +189,15 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.fromUid == request.auth.uid;
       allow update, delete: if signedIn() && resource.data.fromUid == request.auth.uid;
     }
+
+    // ─── Server-only documents (written by the Worker's service account) ─────
+    // Single-use admin picker links and the recorded monthly winners. Clients must
+    // never read these: a readable adminTokens doc would hand out a working link.
+    match /adminTokens/{token} {
+      allow read, write: if false;
+    }
+    match /rewards/{month} {
+      allow read, write: if false;
+    }
   }
 }
