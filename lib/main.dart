@@ -165,6 +165,9 @@ const List<String> kTileSubdomains = ['a', 'b', 'c', 'd'];
 
 // theme colors — dark mode is the default, light mode added later
 bool _appIsDark = true;
+// Halloween mode — a seasonal skin layered on top of the dark theme. When this
+// is on the palette below switches to pumpkin orange + violet on purple-black.
+bool _halloween = false;
 
 // ─── 2026-10-11 DESIGN REFRESH ───────────────────────────────────────────────
 // Blend of the three concepts the user picked: (1) crisp white / stone canvas
@@ -172,17 +175,20 @@ bool _appIsDark = true;
 // stream, (3) warm cream chat panels with organic sage accents. Sage replaces the
 // old teal everywhere. Contrast re-checked: charcoal on stone ≈ 15:1, white on the
 // #527A75 button sage ≈ 4.8:1, #3F635E ≈ 6.7:1, sage icons clear 3:1.
-Color get kBackground => _appIsDark ? const Color(0xFF0F1418) : const Color(0xFFF4F6F6);
-Color get kCard => _appIsDark ? const Color(0xFF1B1F1E) : const Color(0xFFFFFFFF);
-Color get kCardLight => _appIsDark ? const Color(0xFF252B29) : const Color(0xFFEDF1F0);
+// HALLOWEEN MODE: pumpkin orange (kAccent) + violet on a purple-black canvas.
+// It always renders as a dark theme, so every getter below just checks
+// _halloween first, then falls through to the normal dark/light values.
+Color get kBackground => _halloween ? const Color(0xFF130B1C) : (_appIsDark ? const Color(0xFF0F1418) : const Color(0xFFF4F6F6));
+Color get kCard => _halloween ? const Color(0xFF231536) : (_appIsDark ? const Color(0xFF1B1F1E) : const Color(0xFFFFFFFF));
+Color get kCardLight => _halloween ? const Color(0xFF2E1D45) : (_appIsDark ? const Color(0xFF252B29) : const Color(0xFFEDF1F0));
 // warm cream surface for chat panels (concept 3)
-Color get kChatSurface => _appIsDark ? const Color(0xFF191E1D) : const Color(0xFFFBF6EF);
-Color get kAccent => _appIsDark ? const Color(0xFF7FB0A8) : const Color(0xFF63918B);
-Color get kAccentDark => _appIsDark ? const Color(0xFF63918B) : const Color(0xFF527A75);
+Color get kChatSurface => _halloween ? const Color(0xFF1B1024) : (_appIsDark ? const Color(0xFF191E1D) : const Color(0xFFFBF6EF));
+Color get kAccent => _halloween ? const Color(0xFFFF8A1F) : (_appIsDark ? const Color(0xFF7FB0A8) : const Color(0xFF63918B));
+Color get kAccentDark => _halloween ? const Color(0xFFE0700F) : (_appIsDark ? const Color(0xFF63918B) : const Color(0xFF527A75));
 Color get kBadge => _appIsDark ? kAccent : const Color(0xFF4A625F);
-Color get kTextPrimary => _appIsDark ? const Color(0xFFECEFEE) : const Color(0xFF1C1C1E);
-Color get kTextSecondary => _appIsDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
-Color get kDivider => _appIsDark ? const Color(0xFF2C3332) : const Color(0xFFE4E7E7);
+Color get kTextPrimary => _halloween ? const Color(0xFFF6EFE6) : (_appIsDark ? const Color(0xFFECEFEE) : const Color(0xFF1C1C1E));
+Color get kTextSecondary => _halloween ? const Color(0xFFBCA8D1) : (_appIsDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280));
+Color get kDivider => _halloween ? const Color(0xFF3B2959) : (_appIsDark ? const Color(0xFF2C3332) : const Color(0xFFE4E7E7));
 
 // heavy rounding — the brief asks for 16–24px on every card
 const double kRadius = 22;
@@ -4666,7 +4672,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _language = 'English';
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.7.1';
+  String _appVersion = 'bv0.7.2';
 
   @override
   void initState() {
