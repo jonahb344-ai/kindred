@@ -1834,6 +1834,17 @@ async function altstoreSource() {
       'https://raw.githubusercontent.com/jonahb344-ai/kindred/main/assets/icon/app_icon.png',
     tintColor: '63918B',
     size: meta.size,
+    appPermissions: {
+      entitlements: [],
+      privacy: {
+        NSCameraUsageDescription:
+          'Kindred uses your camera so you can take a photo of a kindness act as proof.',
+        NSPhotoLibraryUsageDescription:
+          'Kindred uses your photo library so you can pick a profile photo.',
+        NSLocationWhenInUseUsageDescription:
+          'Kindred uses your location to show kindness requests near you.',
+      },
+    },
   };
   const payload = {
     name: 'Kindred',
