@@ -4706,6 +4706,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           KindredApp.of(context)?.setThemeMode(parsed.first);
         }
       }
+      if (data.containsKey('halloween')) {
+        _halloween = data['halloween'] == true;
+      }
     });
   }
 
@@ -4717,6 +4720,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'notifRequests': _notifRequests,
       'language': _language,
       'nearbyRadiusMi': _nearbyRadiusMi,
+      'halloween': _halloween,
     });
   }
 
@@ -4804,6 +4808,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ]);
                 if (v != null && mounted) { setState(() => _language = v); _saveSettings(); }
               },
+            ),
+            _SettingsTile(
+              icon: Icons.bug_report_rounded,
+              title: 'Halloween Mode',
+              subtitle: 'Pumpkin orange + spooky purple theme',
+              trailing: CupertinoSwitch(
+                value: _halloween,
+                onChanged: (v) {
+                  setState(() => _halloween = v);
+                  _saveSettings();
+                },
+                activeTrackColor: kAccent,
+              ),
             ),
           ]),
 
