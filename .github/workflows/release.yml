@@ -166,24 +166,40 @@ jobs:
   ios_appstore:
     name: iOS App Store IPA
     runs-on: macos-latest
-    # Skipped (silently) until the App Store signing secrets exist — the public
-    # APK + unsigned-IPA release keeps working before/during portal setup.
-    if: ${{ secrets.APP_STORE_CERT_P12_BASE64 != '' }}
+    # Builds a SIGNED App Store IPA. No-ops (fast) until the App Store signing
+    # secrets exist — `secrets` can't be used in a job-level `if`, so the first
+    # step guards everything after it instead.
     steps:
+      - name: Check App Store secrets are present
+        id: guard
+        env:
+          CERT_P12_BASE64: ${{ secrets.APP_STORE_CERT_P12_BASE64 }}
+        run: |
+          if [ -z "$CERT_P12_BASE64" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::App Store signing secrets not set yet - skipping the App Store build (see APP_STORE_SUBMISSION.md)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
+        if: steps.guard.outputs.skip == 'false'
         uses: actions/checkout@v4
 
       - name: Version from pubspec
+        if: steps.guard.outputs.skip == 'false'
         run: |
           echo "VERSION=$(sed -nE 's/^version: ([0-9.]+).*/\1/p' pubspec.yaml)" >> "$GITHUB_ENV"
 
       - name: Set up Flutter
+        if: steps.guard.outputs.skip == 'false'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
       - name: Strip Mac-only dependency overrides
+        if: steps.guard.outputs.skip == 'false'
         run: |
           python3 - <<'PY'
           import re, pathlib
@@ -195,12 +211,15 @@ jobs:
           PY
 
       - name: Fresh pods
+        if: steps.guard.outputs.skip == 'false'
         run: rm -rf ios/Pods ios/Podfile.lock
 
       - name: Pub get
+        if: steps.guard.outputs.skip == 'false'
         run: flutter pub get
 
       - name: Import distribution certificate + profile
+        if: steps.guard.outputs.skip == 'false'
         env:
           CERT_P12_BASE64: ${{ secrets.APP_STORE_CERT_P12_BASE64 }}
           CERT_PASSWORD: ${{ secrets.APP_STORE_CERT_PASSWORD }}
@@ -224,6 +243,7 @@ jobs:
             "$HOME/Library/MobileDevice/Provisioning Profiles/$(uuidgen).mobileprovision"
 
       - name: Generate ExportOptions.plist
+        if: steps.guard.outputs.skip == 'false'
         env:
           TEAM_ID: ${{ secrets.APP_STORE_TEAM_ID }}
         run: |
@@ -255,11 +275,13 @@ jobs:
           EOF
 
       - name: Build App Store IPA
+        if: steps.guard.outputs.skip == 'false'
         # GITHUB_RUN_NUMBER is unique + increasing, which is exactly what
         # App Store Connect requires for CFBundleVersion.
         run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist --build-number=$GITHUB_RUN_NUMBER
 
       - name: Upload App Store IPA artifact
+        if: steps.guard.outputs.skip == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: kindred-appstore-ipa
@@ -268,7 +290,7 @@ jobs:
           retention-days: 30
 
       - name: Upload to App Store Connect
-        if: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 != '' }}
+        if: ${{ steps.guard.outputs.skip == 'false' && secrets.APP_STORE_CONNECT_KEY_P8_BASE64 != '' }}
         env:
           ASC_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
