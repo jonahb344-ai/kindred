@@ -345,10 +345,18 @@ class _KindredAppState extends State<KindredApp> {
     if (uid == null) return;
     try {
       final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      final mode = doc.data()?['themeMode'] as String?;
-      if (mode != null && mounted) {
-        final parsed = ThemeMode.values.where((m) => m.name == mode);
-        if (parsed.isNotEmpty) setState(() => _themeMode = parsed.first);
+      final data = doc.data();
+      final mode = data?['themeMode'] as String?;
+      if (mounted) {
+        setState(() {
+          if (mode != null) {
+            final parsed = ThemeMode.values.where((m) => m.name == mode);
+            if (parsed.isNotEmpty) _themeMode = parsed.first;
+          }
+          // seasonal modes (Halloween …) persist here too so a cold start
+          // applies the skin + forced dark WITHOUT needing to open Settings
+          if (data?['halloween'] == true) _halloween = true;
+        });
       }
     } catch (_) {}
   }
@@ -361,17 +369,25 @@ class _KindredAppState extends State<KindredApp> {
     }
   }
 
+  // Seasonal modes (Halloween, …) always force the dark theme regardless of the
+  // user's saved pref. Call this after toggling/loading any seasonal flag so
+  // MaterialApp + _appIsDark recompute; the pref itself is untouched, so the
+  // theme snaps back as soon as the seasonal mode is turned off.
+  void applySeasonalMode() {
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final dispatcher = WidgetsBinding.instance.platformDispatcher;
     final systemDark = dispatcher.platformBrightness == Brightness.dark;
-    _appIsDark = _themeMode == ThemeMode.dark || (_themeMode == ThemeMode.system && systemDark);
+    _appIsDark = _halloween || _themeMode == ThemeMode.dark || (_themeMode == ThemeMode.system && systemDark);
     return MaterialApp(
       title: 'Kindred',
       debugShowCheckedModeBanner: false,
       theme: _lightTheme(),
       darkTheme: _darkTheme(),
-      themeMode: _themeMode,
+      themeMode: _halloween ? ThemeMode.dark : _themeMode,
       home: kIsWeb
           // no cold-start logo splash on the web build — it's only wanted on the
           // real (Android/iOS) app
@@ -4689,6 +4705,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+    // grab this BEFORE the await so we never touch BuildContext across the gap
+    final appState = KindredApp.of(context);
     final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
     final data = doc.data();
     if (data == null) return;
@@ -4703,13 +4721,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final parsed = ThemeMode.values.where((m) => m.name == mode);
         if (parsed.isNotEmpty) {
           _themeMode = parsed.first;
-          KindredApp.of(context)?.setThemeMode(parsed.first);
+          appState?.setThemeMode(parsed.first);
         }
       }
       if (data.containsKey('halloween')) {
         _halloween = data['halloween'] == true;
       }
     });
+    // the flag lives in a global the color tokens read — make MaterialApp
+    // rebuild so a saved seasonal mode forces dark right after app start
+    appState?.applySeasonalMode();
   }
 
   Future<void> _saveSettings() async {
@@ -4784,6 +4805,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.brightness_auto_rounded,
               title: 'Theme',
+              subtitle: _halloween ? 'Dark while a seasonal mode is on' : null,
               trailing: Text(_themeLabel(_themeMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
               onTap: () async {
                 final v = await _showActionSheet<ThemeMode>(context, title: 'Theme', actions: [
@@ -4812,11 +4834,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.bug_report_rounded,
               title: 'Halloween Mode',
-              subtitle: 'Pumpkin orange + spooky purple theme',
+              subtitle: 'Pumpkin orange + spooky purple theme (forces dark mode)',
               trailing: CupertinoSwitch(
                 value: _halloween,
                 onChanged: (v) {
                   setState(() => _halloween = v);
+                  KindredApp.of(context)?.applySeasonalMode();
                   _saveSettings();
                 },
                 activeTrackColor: kAccent,
