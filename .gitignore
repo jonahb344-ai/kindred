@@ -58,4 +58,11 @@ android/key.properties
 
 # AI tooling / agent memory (kept local, not published)
 /AGENTS.md
+
+# Congressional App Challenge working doc (private, not published)
+/CAC_APPLICATION.md
+
+# App Store submission working doc + signing material (private, never commit)
+/APP_STORE_SUBMISSION.md
+/ios_appstore_setup/
 apks/

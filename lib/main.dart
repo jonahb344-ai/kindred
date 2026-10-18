@@ -28,13 +28,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:crypto/crypto.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
@@ -1254,6 +1256,54 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // Apple's SIWA flow wants a sha256(nonce) up front and the RAW nonce back in
+  // the Firebase credential — both are checked server-side to block replays.
+  String _appleNonce() {
+    const charset = '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    final random = math.Random.secure();
+    return List.generate(32, (_) => charset[random.nextInt(charset.length)]).join();
+  }
+
+  Future<void> _signInWithApple() async {
+    setState(() => _isLoading = true);
+    try {
+      final rawNonce = _appleNonce();
+      final appleCredential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [AppleIDAuthorizationScopes.email, AppleIDAuthorizationScopes.fullName],
+        nonce: sha256.convert(utf8.encode(rawNonce)).toString(),
+      );
+      final oauthCredential = OAuthProvider('apple.com').credential(
+        idToken: appleCredential.identityToken,
+        accessToken: appleCredential.authorizationCode,
+        rawNonce: rawNonce,
+      );
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(oauthCredential);
+      final user = userCredential.user;
+      if (user != null) {
+        // Apple only reveals the name on the FIRST authorization, so stash it now
+        final displayName = [appleCredential.givenName, appleCredential.familyName]
+            .whereType<String>()
+            .where((s) => s.isNotEmpty)
+            .join(' ');
+        if (displayName.isNotEmpty && (user.displayName == null || user.displayName!.isEmpty)) {
+          await user.updateProfile(displayName: displayName);
+          await user.reload();
+        }
+        await _ensureUserDoc(FirebaseAuth.instance.currentUser ?? user);
+      }
+    } on SignInWithAppleAuthorizationException catch (e) {
+      // user cancelling the sheet is not an error
+      if (e.code != AuthorizationErrorCode.canceled) {
+        _toast('Sign in failed. Please try again.');
+      }
+    } catch (_) {
+      // don't surface the raw exception -- Apple/Firebase messages can echo the email back
+      _toast('Sign in failed. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _submitWithEmail() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -1388,6 +1438,30 @@ String _friendlyAuthError(Object error) {
                       ),
                     ),
                   ),
+                  // App Review Guideline 4.8: offering Google Sign-In obligates us to
+                  // offer Sign in with Apple as an equivalent option. iOS only for now.
+                  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
+                    const SizedBox(height: 12),
+                    _Pressable(
+                      onTap: _isLoading ? null : _signInWithApple,
+                      child: Container(
+                        width: double.infinity, height: 54,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.apple, size: 22, color: Colors.white),
+                            const SizedBox(width: 10),
+                            Text('Continue with Apple', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _isLoading ? const Color(0xFF94A3B8) : Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   Row(children: [
                     const Expanded(child: Divider(color: Colors.white24)),
@@ -4672,7 +4746,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _language = 'English';
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.7.2';
+  String _appVersion = 'bv0.8.0';
 
   @override
   void initState() {
