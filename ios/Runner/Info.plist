@@ -71,6 +71,8 @@
 	<string>Kindred uses your camera so you can take a photo of a kindness act as proof.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Kindred uses your location to show kindness requests near you.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Kindred uses your location to show kindness requests near you, even when the app is in the background.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
