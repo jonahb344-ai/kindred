@@ -4873,22 +4873,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           _SettingsSection(title: 'Appearance', children: [
-            _SettingsTile(
-              icon: Icons.brightness_auto_rounded,
-              title: 'Theme',
-              subtitle: _halloween ? 'Dark while a seasonal mode is on' : null,
-              trailing: Text(_themeLabel(_themeMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
-              onTap: () async {
-                final v = await _showActionSheet<ThemeMode>(context, title: 'Theme', actions: [
-                  _SheetAction(icon: Icons.brightness_auto_rounded, label: 'System', value: ThemeMode.system, selected: _themeMode == ThemeMode.system),
-                  _SheetAction(icon: Icons.light_mode_rounded, label: 'Light', value: ThemeMode.light, selected: _themeMode == ThemeMode.light),
-                  _SheetAction(icon: Icons.dark_mode_rounded, label: 'Dark', value: ThemeMode.dark, selected: _themeMode == ThemeMode.dark),
-                ]);
-                if (v != null && context.mounted) {
-                  setState(() => _themeMode = v);
-                  KindredApp.of(context)?.setThemeMode(v);
-                }
-              },
+            // Halloween (and any future seasonal mode) pins the app to dark, so the
+            // theme picker is shown greyed-out and inert while it is on. The
+            // user's saved preference is untouched and comes back when it is off.
+            Opacity(
+              opacity: _halloween ? 0.5 : 1.0,
+              child: _SettingsTile(
+                icon: Icons.brightness_auto_rounded,
+                title: 'Theme',
+                titleColor: _halloween ? kTextSecondary : null,
+                subtitle: _halloween ? 'Locked to dark while Halloween Mode is on' : null,
+                trailing: Text(_halloween ? 'Dark' : _themeLabel(_themeMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
+                onTap: _halloween ? null : () async {
+                  final v = await _showActionSheet<ThemeMode>(context, title: 'Theme', actions: [
+                    _SheetAction(icon: Icons.brightness_auto_rounded, label: 'System', value: ThemeMode.system, selected: _themeMode == ThemeMode.system),
+                    _SheetAction(icon: Icons.light_mode_rounded, label: 'Light', value: ThemeMode.light, selected: _themeMode == ThemeMode.light),
+                    _SheetAction(icon: Icons.dark_mode_rounded, label: 'Dark', value: ThemeMode.dark, selected: _themeMode == ThemeMode.dark),
+                  ]);
+                  if (v != null && context.mounted) {
+                    setState(() => _themeMode = v);
+                    KindredApp.of(context)?.setThemeMode(v);
+                  }
+                },
+              ),
             ),
             _SettingsTile(
               icon: Icons.bug_report_rounded,
