@@ -109,26 +109,21 @@ service cloud.firestore {
           && (chatRequest().data.requesterId == request.auth.uid
               || chatRequest().data.volunteerId == request.auth.uid);
       }
-
-      // Has `a` blocked `b`? This has to live here rather than in the app: the block
-      // list lives in the user's private doc so nobody else can read it, and rules
-      // ignore client read permissions, so we can still enforce it server-side
-      // without handing everyone's block list to every signed-in user.
-      function blockedBy(a, b) {
-        return a is string
-          && exists(/databases/$(database)/documents/users/$(a)/private/data)
-          && get(/databases/$(database)/documents/users/$(a)/private/data).data.blockedUsers is list
-          && b in get(/databases/$(database)/documents/users/$(a)/private/data).data.blockedUsers;
+      function chatHasMe() {
+        return signedIn()
+          && exists(/databases/$(database)/documents/chats/$(chatId))
+          && get(/databases/$(database)/documents/chats/$(chatId)).data.participants is list
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       }
 
-      allow read, write: if chatParticipant();
+      allow read, write: if chatParticipant() || chatHasMe();
 
       match /messages/{messageId} {
-        allow create: if chatParticipant()
+        allow create: if (chatParticipant() || chatHasMe())
           && request.resource.data.senderId == request.auth.uid
           && !blockedBy(chatRequest().data.requesterId, request.auth.uid)
           && !blockedBy(chatRequest().data.volunteerId, request.auth.uid);
-        allow read, update, delete: if chatParticipant();
+        allow read, update, delete: if chatParticipant() || chatHasMe();
       }
     }
 

@@ -427,10 +427,10 @@ class _KindredAppState extends State<KindredApp> {
       home: kIsWeb
           // no cold-start logo splash on the web build — it's only wanted on the
           // real (Android/iOS) app
-          ? KeyedSubtree(key: ValueKey(_themeMode), child: const AuthGate())
+          ? KeyedSubtree(key: ValueKey('w${_themeMode.index}$_halloween'), child: const AuthGate())
           : _StartupSplash(
               child: KeyedSubtree(
-                key: ValueKey(_themeMode),
+                key: ValueKey('n${_themeMode.index}$_halloween'),
                 child: const AuthGate(),
               ),
             ),
@@ -3397,12 +3397,25 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollController = ScrollController();
   String? _blocked;
 
+  Future<void> _ensureParticipants(String chatId, String otherUid) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final ref = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      await ref.set({
+        'participants': FieldValue.arrayUnion([user.uid, otherUid]),
+        'participantUids': FieldValue.arrayUnion([user.uid, otherUid]),
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     _checkBlocked();
     _markChatRead();
     _setChatPresence(true);
+    _ensureParticipants(widget.chatId, widget.otherUid);
   }
 
   @override
@@ -3459,6 +3472,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    _ensureParticipants(widget.chatId, widget.otherUid);
     try {
       final myBlocked = await _getBlockedUsers(user.uid);
       if (myBlocked.contains(widget.otherUid)) {
@@ -4857,9 +4871,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _halloween = data['halloween'] == true;
       }
     });
-    // the flag lives in a global the color tokens read — make MaterialApp
-    // rebuild so a saved seasonal mode forces dark right after app start
-    appState?.applySeasonalMode();
+      // the flag lives in a global the color tokens read — make MaterialApp
+      // rebuild so a saved seasonal mode forces dark right after app start
+      appState?.applySeasonalMode();
+      // ensure the whole tree rebuilds with the correct palette
+      if (mounted) setState(() {});
   }
 
   Future<void> _saveSettings() async {
@@ -4964,6 +4980,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   setState(() => _halloween = v);
                   KindredApp.of(context)?.applySeasonalMode();
                   _saveSettings();
+                  if (mounted) setState(() {});
                 },
                 activeTrackColor: kAccent,
               ),
