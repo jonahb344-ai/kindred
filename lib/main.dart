@@ -1210,7 +1210,7 @@ class _LoginScreenState extends State<LoginScreen> {
         'frameStyle': 'none', 'kindnessScore': 0, 'level': 'Newcomer',
         'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
         'setupDone': false, 'tutorialDone': false,
-        'notifMessages': true, 'notifRequests': true, 'language': 'English',
+        'notifMessages': true, 'notifRequests': true,
         'nearbyRadiusMi': 1.0,
         'joinedAt': FieldValue.serverTimestamp(),
       });
@@ -4759,10 +4759,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifMessages = true;
   bool _notifRequests = true;
   ThemeMode _themeMode = ThemeMode.system;
-  String _language = 'English';
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.8.0';
+  String _appVersion = 'bv0.8.1';
 
   @override
   void initState() {
@@ -4787,7 +4786,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _notifMessages = data['notifMessages'] ?? true;
       _notifRequests = data['notifRequests'] ?? true;
-      _language = data['language'] ?? 'English';
       final radius = data['nearbyRadiusMi'];
       if (radius is num && radius > 0) _nearbyRadiusMi = radius.toDouble();
       final mode = data['themeMode'] as String?;
@@ -4813,7 +4811,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await FirebaseFirestore.instance.collection('users').doc(uid).update({
       'notifMessages': _notifMessages,
       'notifRequests': _notifRequests,
-      'language': _language,
       'nearbyRadiusMi': _nearbyRadiusMi,
       'halloween': _halloween,
     });
@@ -4891,18 +4888,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   setState(() => _themeMode = v);
                   KindredApp.of(context)?.setThemeMode(v);
                 }
-              },
-            ),
-            _SettingsTile(
-              icon: Icons.language_rounded,
-              title: 'Language',
-              trailing: Text(_language, style: TextStyle(color: kTextSecondary, fontSize: 14)),
-              onTap: () async {
-                final v = await _showActionSheet<String>(context, title: 'Language', actions: [
-                  for (final l in const ['English', 'Spanish', 'French', 'Portuguese'])
-                    _SheetAction(icon: Icons.language_rounded, label: l, value: l, selected: _language == l),
-                ]);
-                if (v != null && mounted) { setState(() => _language = v); _saveSettings(); }
               },
             ),
             _SettingsTile(
