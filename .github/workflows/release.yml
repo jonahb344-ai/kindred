@@ -248,6 +248,9 @@ jobs:
           # must run AFTER the import: newer macOS errors on an empty keychain
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
           security find-identity -v -p codesigning "$KEYCHAIN"
+          # later steps need to re-unlock the keychain and find the profile by name
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PW=$KEYCHAIN_PW" >> "$GITHUB_ENV"
           echo "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.mobileprovision"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp "$RUNNER_TEMP/dist.mobileprovision" \
@@ -261,6 +264,7 @@ jobs:
           set -eux
           # The profile's own Name is what Xcode expects in provisioningProfiles
           PROFILE_NAME=$(security cms -D -i "$RUNNER_TEMP/dist.mobileprovision" | plutil -extract Name raw -)
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           cat > ios/ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -287,9 +291,26 @@ jobs:
 
       - name: Build App Store IPA
         if: steps.guard.outputs.skip == 'false'
+        env:
+          TEAM_ID: ${{ secrets.APP_STORE_TEAM_ID }}
         # GITHUB_RUN_NUMBER is unique + increasing, which is exactly what
-        # App Store Connect requires for CFBundleVersion.
-        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist --build-number=$GITHUB_RUN_NUMBER
+        # App Store Connect requires for CFBundleVersion. The pbxproj has no
+        # DEVELOPMENT_TEAM, so `flutter build ipa` (automatic signing) cannot
+        # find an identity — archive manually with the imported cert/profile.
+        run: |
+          set -eux
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          flutter build ios --release --no-codesign --build-number=$GITHUB_RUN_NUMBER
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/ios/Runner.xcarchive" archive \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
+          xcodebuild -exportArchive \
+            -archivePath "$PWD/build/ios/Runner.xcarchive" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath "$PWD/build/ios/ipa"
 
       - name: Upload App Store IPA artifact
         if: steps.guard.outputs.skip == 'false'
