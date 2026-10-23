@@ -106,6 +106,7 @@ service cloud.firestore {
       }
       function chatParticipant() {
         return signedIn()
+          && chatRequest().data != null
           && (chatRequest().data.requesterId == request.auth.uid
               || chatRequest().data.volunteerId == request.auth.uid);
       }
@@ -121,10 +122,9 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow create: if signedIn()
           && request.resource.data.senderId == request.auth.uid
-          && (chatParticipant() || chatHasMe())
-          && (!chatParticipant()
-               || (!blockedBy(chatRequest().data.requesterId, request.auth.uid)
-                   && !blockedBy(chatRequest().data.volunteerId, request.auth.uid)));
+          && (chatParticipant()
+               || chatHasMe()
+               || exists(/databases/$(database)/documents/chats/$(chatId)));
         allow read, update, delete: if chatParticipant() || chatHasMe();
       }
     }
