@@ -1358,10 +1358,10 @@ class _LoginScreenState extends State<LoginScreen> {
         }
         await _ensureUserDoc(FirebaseAuth.instance.currentUser ?? user);
       }
-  } on SignInWithAppleAuthorizationException catch (e) {
+    } on SignInWithAppleAuthorizationException catch (e) {
       // user cancelling the sheet is not an error
       if (e.code != AuthorizationErrorCode.canceled) {
-        _toast('Sign in with Apple failed (${e.code.name})');
+        _toast('Sign in with Apple failed auth:${e.code.name}');
       }
     } on FirebaseAuthException catch (e) {
       if (e.code == 'account-exists-with-different-credential') {
@@ -1369,11 +1369,12 @@ class _LoginScreenState extends State<LoginScreen> {
       } else if (e.code == 'invalid-credential' || e.code == 'invalid-identity-token') {
         _toast('Apple sign-in failed (${e.code}). Try turning on account linking in Firebase.');
       } else {
-        _toast('Sign in with Apple failed (${e.code})');
+        _toast('Sign in with Apple failed fb:${e.code}');
       }
-    } catch (e) {
+    } catch (e, st) {
       // don't surface the raw exception -- Apple/Firebase messages can echo the email back
-      _toast('Sign in with Apple failed: $e');
+      debugPrint('apple sign in error: $e\n$st');
+      _toast('Sign in with Apple failed: ${e.runtimeType}');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
