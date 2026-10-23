@@ -55,6 +55,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/terms') {
       return termsPage();
     }
+    if (request.method === 'GET' && url.pathname === '/support') {
+      return supportPage();
+    }
     if (request.method === 'GET' && url.pathname === '/altstore.json') {
       return altstoreSource();
     }
@@ -440,6 +443,74 @@ const TERMS_PAGE = `<!DOCTYPE html>
 
 function termsPage() {
   return htmlPage(TERMS_PAGE);
+}
+
+// ─── /support (public page — also the App Store "Support URL") ───────────────
+
+const SUPPORT_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support — Kindred</title>
+<style>
+  body{margin:0;font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#f5f8fa;color:#0f172a;line-height:1.7;}
+  .wrap{max-width:720px;margin:0 auto;padding:48px 24px 80px;}
+  h1{font-size:30px;margin:0 0 8px;}
+  .sub{color:#64748b;margin:0 0 32px;font-size:14px;}
+  h2{font-size:18px;margin:32px 0 8px;}
+  p,li{font-size:15px;}
+  a{color:#0f766e;}
+  .card{background:#fff;border-radius:16px;padding:20px 22px;box-shadow:0 6px 20px rgba(15,23,42,.06);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kindred Support</h1>
+  <p class="sub">Neighbors helping neighbors</p>
+
+  <div class="card">
+    <h2>Contact us</h2>
+    <p>Questions, bugs, or feedback? Email
+    <a href="mailto:jonahb344+kindred@gmail.com">jonahb344+kindred@gmail.com</a>.
+    We usually reply within a couple of days.</p>
+  </div>
+
+  <h2>How do I post a favor?</h2>
+  <p>Open the Help tab and tap <strong>Ask for a Favor</strong>. Pick a category,
+  describe what you need, choose an urgency, and post. Neighbors within your
+  radius will see it.</p>
+
+  <h2>How do I help someone?</h2>
+  <p>Tap a request in the feed, then <strong>I'll help</strong>. The chat opens so
+  you can coordinate. When you're done, tap the check in the chat to mark it
+  complete.</p>
+
+  <h2>Why is my location needed?</h2>
+  <p>Location is only used to show requests near you. You can deny location
+  permission and still use Kindred — you just won't see distance-sorted
+  requests. Background location is never collected.</p>
+
+  <h2>How do I report or block someone?</h2>
+  <p>Open the person's profile, a request, or a chat and use the report option.
+  Blocking hides you from each other everywhere in the app.</p>
+
+  <h2>How do I delete my account?</h2>
+  <p>Settings → Delete Account. This permanently removes your profile, requests,
+  chat messages, and notifications.</p>
+
+  <h2>Points, levels, and badges</h2>
+  <p>You earn points for helping neighbors, plus badges and a daily streak. The
+  Kindest of the Month is picked from the most recipient-confirmed helpers.</p>
+
+  <h2>Legal</h2>
+  <p><a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Service</a></p>
+</div>
+</body>
+</html>`;
+
+function supportPage() {
+  return htmlPage(SUPPORT_PAGE);
 }
 
 function requestAuthHeader(request) {
