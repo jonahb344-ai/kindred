@@ -97,32 +97,41 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 // sets up local notifications + foreground FCM listener (android + ios)
-// Saves this device's FCM token so the Worker can push to it. iOS can take a
+  // Saves this device's FCM token so the Worker can push to it. iOS can take a
 // few seconds to hand out an APNs token right after launch (and returns null on
 // the very first call sometimes), so retry instead of giving up: a missing
 // token means the user silently receives no notifications at all.
 Future<void> _saveFcmToken(String uid) async {
   if (kIsWeb) return;
-  for (var attempt = 0; attempt < 4; attempt++) {
+  for (var attempt = 0; attempt < 8; attempt++) {
     try {
       final token = await FirebaseMessaging.instance
           .getToken()
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 20));
       if (token != null && token.isNotEmpty) {
         await FirebaseFirestore.instance
             .collection('users').doc(uid).collection('private').doc('data')
             .set({'fcmToken': token}, SetOptions(merge: true));
         return;
       }
-    } catch (_) {}
-    await Future.delayed(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint('fcm token error: $e');
+    }
+    await Future.delayed(const Duration(seconds: 4));
   }
 }
 
 Future<void> _initNotifications() async {
   await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
-  // Keep the stored token fresh: APNs rotates it, and iOS dev builds can start
-  // returning one after the user grants permission on a later launch.
+  // Force APNs registration so FCM can mint a token on TestFlight.
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    try {
+      await FirebaseMessaging.instance.getAPNSToken().timeout(const Duration(seconds: 15));
+    } catch (e) {
+      debugPrint('apns token error: $e');
+    }
+  }
+  // Keep the stored token fresh: APNs rotates it.
   FirebaseMessaging.instance.onTokenRefresh.listen((token) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || token.isEmpty) return;
@@ -1349,20 +1358,22 @@ class _LoginScreenState extends State<LoginScreen> {
         }
         await _ensureUserDoc(FirebaseAuth.instance.currentUser ?? user);
       }
-    } on SignInWithAppleAuthorizationException catch (e) {
+  } on SignInWithAppleAuthorizationException catch (e) {
       // user cancelling the sheet is not an error
       if (e.code != AuthorizationErrorCode.canceled) {
-        _toast('Sign in with Apple failed (${e.code.name}).');
+        _toast('Sign in with Apple failed (${e.code.name})');
       }
     } on FirebaseAuthException catch (e) {
       if (e.code == 'account-exists-with-different-credential') {
         _toast('An account with this email exists. Sign in with Google or email first.');
+      } else if (e.code == 'invalid-credential' || e.code == 'invalid-identity-token') {
+        _toast('Apple sign-in failed (${e.code}). Try turning on account linking in Firebase.');
       } else {
-        _toast('Sign in with Apple failed (${e.code}).');
+        _toast('Sign in with Apple failed (${e.code})');
       }
     } catch (e) {
       // don't surface the raw exception -- Apple/Firebase messages can echo the email back
-      _toast('Sign in with Apple failed. Please try again.');
+      _toast('Sign in with Apple failed: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
