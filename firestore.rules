@@ -119,10 +119,12 @@ service cloud.firestore {
       allow read, write: if chatParticipant() || chatHasMe();
 
       match /messages/{messageId} {
-        allow create: if (chatParticipant() || chatHasMe())
+        allow create: if signedIn()
           && request.resource.data.senderId == request.auth.uid
-          && !blockedBy(chatRequest().data.requesterId, request.auth.uid)
-          && !blockedBy(chatRequest().data.volunteerId, request.auth.uid);
+          && (chatParticipant() || chatHasMe())
+          && (!chatParticipant()
+               || (!blockedBy(chatRequest().data.requesterId, request.auth.uid)
+                   && !blockedBy(chatRequest().data.volunteerId, request.auth.uid)));
         allow read, update, delete: if chatParticipant() || chatHasMe();
       }
     }
