@@ -97,8 +97,39 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 // sets up local notifications + foreground FCM listener (android + ios)
+// Saves this device's FCM token so the Worker can push to it. iOS can take a
+// few seconds to hand out an APNs token right after launch (and returns null on
+// the very first call sometimes), so retry instead of giving up: a missing
+// token means the user silently receives no notifications at all.
+Future<void> _saveFcmToken(String uid) async {
+  if (kIsWeb) return;
+  for (var attempt = 0; attempt < 4; attempt++) {
+    try {
+      final token = await FirebaseMessaging.instance
+          .getToken()
+          .timeout(const Duration(seconds: 15));
+      if (token != null && token.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('users').doc(uid).collection('private').doc('data')
+            .set({'fcmToken': token}, SetOptions(merge: true));
+        return;
+      }
+    } catch (_) {}
+    await Future.delayed(const Duration(seconds: 3));
+  }
+}
+
 Future<void> _initNotifications() async {
   await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
+  // Keep the stored token fresh: APNs rotates it, and iOS dev builds can start
+  // returning one after the user grants permission on a later launch.
+  FirebaseMessaging.instance.onTokenRefresh.listen((token) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || token.isEmpty) return;
+    FirebaseFirestore.instance
+        .collection('users').doc(uid).collection('private').doc('data')
+        .set({'fcmToken': token}, SetOptions(merge: true)).catchError((_) {});
+  });
   const settings = InitializationSettings(
     android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     iOS: DarwinInitializationSettings(),
@@ -199,9 +230,12 @@ LinearGradient get kAccentGradient => LinearGradient(
   // deep sage pair so WHITE labels on primary buttons always clear 4.5:1.
   // Dark mode uses a duskier, lower-chroma pair so buttons read as calm sage
   // instead of glowing neon against the near-black canvas.
-  colors: _appIsDark
-      ? const [Color(0xFF34524D), Color(0xFF40615B)]
-      : const [Color(0xFF3F635E), Color(0xFF527A75)],
+  // Halloween swaps in a deep pumpkin pair (white text still clears 4.5:1).
+  colors: _halloween
+      ? const [Color(0xFFC2410C), Color(0xFF9A3412)]
+      : _appIsDark
+          ? const [Color(0xFF34524D), Color(0xFF40615B)]
+          : const [Color(0xFF3F635E), Color(0xFF527A75)],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );
@@ -1216,11 +1250,11 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     }
     // iOS dev builds signed with a free Apple account can't get an APNs token
-    // (push needs a paid account) — don't let that break sign-in
+    // (push needs a paid account) — don't let that break sign-in. On TestFlight
+    // this retries in the background until APNs hands us a token.
     String? token;
     if (!kIsWeb) {
       try {
-        // On some iOS dev builds (free Apple ID) this can throw; be defensive.
         token = await FirebaseMessaging.instance.getToken().timeout(const Duration(seconds: 3));
       } catch (_) {
         token = null;
@@ -1228,7 +1262,15 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     await FirebaseFirestore.instance
         .collection('users').doc(user.uid).collection('private').doc('data')
-        .set({'email': user.email, 'phone': '', 'fcmToken': token}, SetOptions(merge: true));
+        .set({
+          'email': user.email,
+          'phone': '',
+          // Never write a null over a token that is already stored.
+          if (token != null && token.isNotEmpty) 'fcmToken': token,
+        }, SetOptions(merge: true));
+    if (!kIsWeb && (token == null || token.isEmpty)) {
+      unawaited(_saveFcmToken(user.uid));
+    }
 
     // One-time migration: block lists used to sit on the public profile, so anyone
     // signed in could read everyone else's. Move whatever is still sitting there into
@@ -1310,11 +1352,17 @@ class _LoginScreenState extends State<LoginScreen> {
     } on SignInWithAppleAuthorizationException catch (e) {
       // user cancelling the sheet is not an error
       if (e.code != AuthorizationErrorCode.canceled) {
-        _toast('Sign in failed. Please try again.');
+        _toast('Sign in with Apple failed (${e.code.name}).');
       }
-    } catch (_) {
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'account-exists-with-different-credential') {
+        _toast('An account with this email exists. Sign in with Google or email first.');
+      } else {
+        _toast('Sign in with Apple failed (${e.code}).');
+      }
+    } catch (e) {
       // don't surface the raw exception -- Apple/Firebase messages can echo the email back
-      _toast('Sign in failed. Please try again.');
+      _toast('Sign in with Apple failed. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -2068,6 +2116,15 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Returning users never re-run sign-in code, so their push token can go
+    // stale (or never get saved at all). Refresh it whenever the app opens.
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) unawaited(_saveFcmToken(uid));
+  }
 
   void switchToTab(int index) => setState(() => _currentIndex = index);
 
