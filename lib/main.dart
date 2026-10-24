@@ -136,6 +136,51 @@ Future<void> _saveFcmToken(String uid) async {
   }
 }
 
+// Hidden diagnostic (long-press the app version in Settings). Runs each push step on
+// its own, shows the result of every step on screen, and saves the token if it gets one.
+Future<void> _runPushDiagnostics(BuildContext context) async {
+  if (kIsWeb) {
+    _showMessageDialog(context, 'Push is not available on web.');
+    return;
+  }
+  final lines = <String>[];
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  lines.add('uid: ${uid ?? "none"}');
+  try {
+    final s = await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
+    lines.add('permission: ${s.authorizationStatus.name}');
+  } catch (e) {
+    lines.add('permission error: $e');
+  }
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    try {
+      final apns = await FirebaseMessaging.instance.getAPNSToken().timeout(const Duration(seconds: 15));
+      lines.add('apns: ${apns == null ? "null" : "ok"}');
+    } catch (e) {
+      lines.add('apns error: $e');
+    }
+  }
+  String? token;
+  try {
+    token = await FirebaseMessaging.instance.getToken().timeout(const Duration(seconds: 20));
+    lines.add('fcm token: ${token == null ? "null" : "ok"}');
+  } catch (e) {
+    lines.add('fcm error: $e');
+  }
+  if (token != null && uid != null) {
+    try {
+      await FirebaseFirestore.instance
+          .collection('users').doc(uid).collection('private').doc('data')
+          .set({'fcmToken': token}, SetOptions(merge: true));
+      lines.add('saved to Firestore: yes');
+    } catch (e) {
+      lines.add('save error: $e');
+    }
+  }
+  if (!context.mounted) return;
+  _showMessageDialog(context, lines.join('\n'));
+}
+
 Future<void> _initNotifications() async {
   await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
   // Force APNs registration so FCM can mint a token on TestFlight.
@@ -1397,6 +1442,21 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _sendPasswordReset() async {
+    final email = _emailController.text.trim();
+    if (!_isValidEmail(email)) {
+      _toast('Enter your email above, then tap Forgot password.');
+      return;
+    }
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+    } on FirebaseAuthException catch (e) {
+      debugPrint('password reset error: ${e.code}');
+    } catch (_) {}
+    // same message whether or not the account exists, so this can't be used to probe emails
+    _toast('If an account exists for that email, a reset link is on its way.');
+  }
+
   Future<void> _submitWithEmail() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -1512,7 +1572,8 @@ String _friendlyAuthError(Object error) {
                 ])),
                 const SizedBox(height: 36),
                 _StaggerIn(delayMs: 120, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  _Pressable(
+                  // Google sign-in is hidden on iPhone for now (Apple sign-in is failing there).
+                  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) _Pressable(
                     onTap: _isLoading ? null : _signInWithGoogle,
                     child: Container(
                       width: double.infinity, height: 54,
@@ -1601,6 +1662,13 @@ String _friendlyAuthError(Object error) {
                       loading: _isLoading,
                       onPressed: _isLoading ? null : _submitWithEmail,
                     ),
+                    if (!_isSignUp) ...[
+                      const SizedBox(height: 6),
+                      TextButton(
+                        onPressed: _isLoading ? null : _sendPasswordReset,
+                        child: const Text('Forgot password?', style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
                   ]),
                 )),
                 const SizedBox(height: 20),
@@ -5085,7 +5153,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.info_outline_rounded,
               title: 'App Version',
-              trailing: Text(_appVersion, style: TextStyle(color: kTextSecondary, fontSize: 14)),
+              // hidden: long-press the version to run the push diagnostic
+              trailing: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: () => _runPushDiagnostics(context),
+                child: Text(_appVersion, style: TextStyle(color: kTextSecondary, fontSize: 14)),
+              ),
             ),
           ]),
 
