@@ -103,30 +103,19 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 // token means the user silently receives no notifications at all.
 Future<void> _saveFcmToken(String uid) async {
   if (kIsWeb) return;
-  if (defaultTargetPlatform == TargetPlatform.iOS) {
-    try {
-      for (int i = 0; i < 15; i++) {
-        final apns = await FirebaseMessaging.instance.getAPNSToken().timeout(const Duration(seconds: 3));
-        if (apns != null && apns.isNotEmpty) break;
-        await Future.delayed(const Duration(seconds: 2));
-      }
-    } catch (e) {
-      debugPrint('apns wait error: $e');
-    }
-  }
-  for (var attempt = 0; attempt < 15; attempt++) {
+  for (var attempt = 0; attempt < 8; attempt++) {
     try {
       final token = await FirebaseMessaging.instance
           .getToken()
-          .timeout(const Duration(seconds: 25));
+          .timeout(const Duration(seconds: 20));
       if (token != null && token.isNotEmpty) {
         await FirebaseFirestore.instance
             .collection('users').doc(uid).collection('private').doc('data')
-            .set({'fcmToken': token, 'lastTokenUpdate': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+            .set({'fcmToken': token}, SetOptions(merge: true));
         return;
       }
     } catch (e) {
-      debugPrint('fcm token error attempt $attempt: $e');
+      debugPrint('fcm token error: $e');
     }
     await Future.delayed(const Duration(seconds: 4));
   }
@@ -1346,15 +1335,10 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     try {
       final rawNonce = _appleNonce();
-      final nonce = sha256.convert(utf8.encode(rawNonce)).toString();
       final appleCredential = await SignInWithApple.getAppleIDCredential(
         scopes: const [AppleIDAuthorizationScopes.email, AppleIDAuthorizationScopes.fullName],
-        nonce: nonce,
+        nonce: sha256.convert(utf8.encode(rawNonce)).toString(),
       );
-      if (appleCredential.identityToken == null || appleCredential.identityToken!.isEmpty) {
-        _toast('Sign in with Apple failed: missing token');
-        return;
-      }
       final oauthCredential = OAuthProvider('apple.com').credential(
         idToken: appleCredential.identityToken,
         accessToken: appleCredential.authorizationCode,
@@ -1363,6 +1347,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final userCredential = await FirebaseAuth.instance.signInWithCredential(oauthCredential);
       final user = userCredential.user;
       if (user != null) {
+        // Apple only reveals the name on the FIRST authorization, so stash it now
         final displayName = [appleCredential.givenName, appleCredential.familyName]
             .whereType<String>()
             .where((s) => s.isNotEmpty)
@@ -1373,18 +1358,22 @@ class _LoginScreenState extends State<LoginScreen> {
         }
         await _ensureUserDoc(FirebaseAuth.instance.currentUser ?? user);
       }
-    } on SignInWithAppleAuthorizationException catch (e) {
+  } on SignInWithAppleAuthorizationException catch (e) {
+      // user cancelling the sheet is not an error
       if (e.code != AuthorizationErrorCode.canceled) {
-        _toast('SIWA:${e.code.name}:${e.message ?? ''}');
+        _toast('Sign in with Apple failed (${e.code.name})');
       }
     } on FirebaseAuthException catch (e) {
       if (e.code == 'account-exists-with-different-credential') {
-        _toast('Account exists with different sign-in method');
+        _toast('An account with this email exists. Sign in with Google or email first.');
+      } else if (e.code == 'invalid-credential' || e.code == 'invalid-identity-token') {
+        _toast('Apple sign-in failed (${e.code}). Try turning on account linking in Firebase.');
       } else {
-        _toast('SIWA:fb:${e.code}');
+        _toast('Sign in with Apple failed (${e.code})');
       }
     } catch (e) {
-      _toast('SIWA:err:${e.runtimeType}');
+      // don't surface the raw exception -- Apple/Firebase messages can echo the email back
+      _toast('Sign in with Apple failed: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -3502,27 +3491,9 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
-        'senderId': user.uid, 'senderName': user.displayName ?? user.email?.split('@').first, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
+        'senderId': user.uid, 'senderName': user.displayName, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
       });
-      // Also ensure chat doc exists with participants
-      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).set({
-        'participants': FieldValue.arrayUnion([user.uid, widget.otherUid]),
-        'lastMessage': text,
-        'lastMessageAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
     } on FirebaseException catch (e) {
-      // The server turns this away when the other person has blocked us. Their block
-      // list is private to them, so we can't check it up front like we used to.
-      if (e.code == 'permission-denied') {
-        if (mounted) _showMessageDialog(context, 'You can no longer message this user.');
-      } else if (mounted) {
-        _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
-      }
-      return;
-    } catch (_) {
-      if (mounted) _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
-      return;
-    }
       // The server turns this away when the other person has blocked us. Their block
       // list is private to them, so we can't check it up front like we used to.
       if (e.code == 'permission-denied') {
@@ -3725,7 +3696,7 @@ class _ChatScreenState extends State<ChatScreen> {
             )
           : Column(children: [
         Expanded(child: StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').orderBy('createdAt', descending: false).snapshots(),
+          stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').orderBy('createdAt').snapshots(),
           builder: (context, snap) {
             if (snap.hasError) {
               return Center(child: Text('This conversation is no longer available.', style: TextStyle(color: kTextSecondary)));
