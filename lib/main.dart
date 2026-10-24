@@ -3502,9 +3502,27 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
-        'senderId': user.uid, 'senderName': user.displayName, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
+        'senderId': user.uid, 'senderName': user.displayName ?? user.email?.split('@').first, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
       });
+      // Also ensure chat doc exists with participants
+      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).set({
+        'participants': FieldValue.arrayUnion([user.uid, widget.otherUid]),
+        'lastMessage': text,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } on FirebaseException catch (e) {
+      // The server turns this away when the other person has blocked us. Their block
+      // list is private to them, so we can't check it up front like we used to.
+      if (e.code == 'permission-denied') {
+        if (mounted) _showMessageDialog(context, 'You can no longer message this user.');
+      } else if (mounted) {
+        _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
+      }
+      return;
+    } catch (_) {
+      if (mounted) _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
+      return;
+    }
       // The server turns this away when the other person has blocked us. Their block
       // list is private to them, so we can't check it up front like we used to.
       if (e.code == 'permission-denied') {
@@ -3707,7 +3725,7 @@ class _ChatScreenState extends State<ChatScreen> {
             )
           : Column(children: [
         Expanded(child: StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').orderBy('createdAt').snapshots(),
+          stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').orderBy('createdAt', descending: false).snapshots(),
           builder: (context, snap) {
             if (snap.hasError) {
               return Center(child: Text('This conversation is no longer available.', style: TextStyle(color: kTextSecondary)));
