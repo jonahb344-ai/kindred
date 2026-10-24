@@ -103,7 +103,22 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 // token means the user silently receives no notifications at all.
 Future<void> _saveFcmToken(String uid) async {
   if (kIsWeb) return;
-  for (var attempt = 0; attempt < 8; attempt++) {
+  // On iOS, FCM cannot mint a token until APNs has handed the device a token.
+  // Wait for that first (up to ~30s), otherwise getToken() fails and we give up.
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    for (int i = 0; i < 15; i++) {
+      try {
+        final apns = await FirebaseMessaging.instance
+            .getAPNSToken()
+            .timeout(const Duration(seconds: 3));
+        if (apns != null && apns.isNotEmpty) break;
+      } catch (e) {
+        debugPrint('apns wait error: $e');
+      }
+      await Future.delayed(const Duration(seconds: 2));
+    }
+  }
+  for (var attempt = 0; attempt < 15; attempt++) {
     try {
       final token = await FirebaseMessaging.instance
           .getToken()
@@ -1360,20 +1375,23 @@ class _LoginScreenState extends State<LoginScreen> {
       }
   } on SignInWithAppleAuthorizationException catch (e) {
       // user cancelling the sheet is not an error
+      debugPrint('SIWA authorization error: code=${e.code.name} message=${e.message}');
       if (e.code != AuthorizationErrorCode.canceled) {
-        _toast('Sign in with Apple failed (${e.code.name})');
+        _toast('Sign in with Apple failed (${e.code.name}): ${e.message}');
       }
     } on FirebaseAuthException catch (e) {
+      debugPrint('SIWA firebase error: code=${e.code} message=${e.message}');
       if (e.code == 'account-exists-with-different-credential') {
         _toast('An account with this email exists. Sign in with Google or email first.');
       } else if (e.code == 'invalid-credential' || e.code == 'invalid-identity-token') {
         _toast('Apple sign-in failed (${e.code}). Try turning on account linking in Firebase.');
       } else {
-        _toast('Sign in with Apple failed (${e.code})');
+        _toast('Sign in with Apple failed (${e.code}): ${e.message}');
       }
     } catch (e) {
+      debugPrint('SIWA error: ${e.runtimeType}: $e');
       // don't surface the raw exception -- Apple/Firebase messages can echo the email back
-      _toast('Sign in with Apple failed: $e');
+      _toast('Sign in with Apple failed (${e.runtimeType})');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -4843,7 +4861,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.8.2b';
+  String _appVersion = 'bv0.8.3';
 
   @override
   void initState() {

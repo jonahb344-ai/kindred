@@ -739,7 +739,14 @@ async function sendFcm(sa, token, title, body) {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: { token, notification: { title, body } },
+        message: {
+          token,
+          notification: { title, body },
+          apns: {
+            headers: { 'apns-priority': '10' },
+            payload: { aps: { sound: 'default' } },
+          },
+        },
       }),
     }
   );
@@ -1644,7 +1651,14 @@ async function handlePush(request, env) {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: { token: targetToken, notification: { title, body: messageBody } },
+          message: {
+            token: targetToken,
+            notification: { title, body: messageBody },
+            apns: {
+              headers: { 'apns-priority': '10' },
+              payload: { aps: { sound: 'default' } },
+            },
+          },
         }),
       }
     );
