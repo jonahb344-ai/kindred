@@ -4861,7 +4861,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.8.3';
+  String _appVersion = 'bv0.8.4';
 
   @override
   void initState() {
