@@ -103,19 +103,30 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 // token means the user silently receives no notifications at all.
 Future<void> _saveFcmToken(String uid) async {
   if (kIsWeb) return;
-  for (var attempt = 0; attempt < 8; attempt++) {
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    try {
+      for (int i = 0; i < 15; i++) {
+        final apns = await FirebaseMessaging.instance.getAPNSToken().timeout(const Duration(seconds: 3));
+        if (apns != null && apns.isNotEmpty) break;
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    } catch (e) {
+      debugPrint('apns wait error: $e');
+    }
+  }
+  for (var attempt = 0; attempt < 15; attempt++) {
     try {
       final token = await FirebaseMessaging.instance
           .getToken()
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 25));
       if (token != null && token.isNotEmpty) {
         await FirebaseFirestore.instance
             .collection('users').doc(uid).collection('private').doc('data')
-            .set({'fcmToken': token}, SetOptions(merge: true));
+            .set({'fcmToken': token, 'lastTokenUpdate': FieldValue.serverTimestamp()}, SetOptions(merge: true));
         return;
       }
     } catch (e) {
-      debugPrint('fcm token error: $e');
+      debugPrint('fcm token error attempt $attempt: $e');
     }
     await Future.delayed(const Duration(seconds: 4));
   }
@@ -1335,10 +1346,15 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     try {
       final rawNonce = _appleNonce();
+      final nonce = sha256.convert(utf8.encode(rawNonce)).toString();
       final appleCredential = await SignInWithApple.getAppleIDCredential(
         scopes: const [AppleIDAuthorizationScopes.email, AppleIDAuthorizationScopes.fullName],
-        nonce: sha256.convert(utf8.encode(rawNonce)).toString(),
+        nonce: nonce,
       );
+      if (appleCredential.identityToken == null || appleCredential.identityToken!.isEmpty) {
+        _toast('Sign in with Apple failed: missing token');
+        return;
+      }
       final oauthCredential = OAuthProvider('apple.com').credential(
         idToken: appleCredential.identityToken,
         accessToken: appleCredential.authorizationCode,
@@ -1347,7 +1363,6 @@ class _LoginScreenState extends State<LoginScreen> {
       final userCredential = await FirebaseAuth.instance.signInWithCredential(oauthCredential);
       final user = userCredential.user;
       if (user != null) {
-        // Apple only reveals the name on the FIRST authorization, so stash it now
         final displayName = [appleCredential.givenName, appleCredential.familyName]
             .whereType<String>()
             .where((s) => s.isNotEmpty)
@@ -1359,22 +1374,17 @@ class _LoginScreenState extends State<LoginScreen> {
         await _ensureUserDoc(FirebaseAuth.instance.currentUser ?? user);
       }
     } on SignInWithAppleAuthorizationException catch (e) {
-      // user cancelling the sheet is not an error
       if (e.code != AuthorizationErrorCode.canceled) {
-        _toast('Sign in with Apple failed auth:${e.code.name}');
+        _toast('SIWA:${e.code.name}:${e.message ?? ''}');
       }
     } on FirebaseAuthException catch (e) {
       if (e.code == 'account-exists-with-different-credential') {
-        _toast('An account with this email exists. Sign in with Google or email first.');
-      } else if (e.code == 'invalid-credential' || e.code == 'invalid-identity-token') {
-        _toast('Apple sign-in failed (${e.code}). Try turning on account linking in Firebase.');
+        _toast('Account exists with different sign-in method');
       } else {
-        _toast('Sign in with Apple failed fb:${e.code}');
+        _toast('SIWA:fb:${e.code}');
       }
-    } catch (e, st) {
-      // don't surface the raw exception -- Apple/Firebase messages can echo the email back
-      debugPrint('apple sign in error: $e\n$st');
-      _toast('Sign in with Apple failed: ${e.runtimeType}');
+    } catch (e) {
+      _toast('SIWA:err:${e.runtimeType}');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
