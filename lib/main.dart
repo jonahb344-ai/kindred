@@ -1594,7 +1594,7 @@ String _friendlyAuthError(Object error) {
                   ),
                   // App Review Guideline 4.8: offering Google Sign-In obligates us to
                   // offer Sign in with Apple as an equivalent option. iOS only for now.
-                  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
+                  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) ...[
                     const SizedBox(height: 12),
                     _Pressable(
                       onTap: _isLoading ? null : _signInWithApple,
@@ -3491,6 +3491,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
+  final _inputFocus = FocusNode();
   final _scrollController = ScrollController();
   String? _blocked;
 
@@ -3519,6 +3520,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _setChatPresence(false);
     _controller.dispose();
+    _inputFocus.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -3569,10 +3571,15 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    // clear + refocus right away so the next message can be typed without clicking the box
+    _controller.clear();
+    _inputFocus.requestFocus();
+    void restoreText() { if (_controller.text.isEmpty) _controller.text = text; }
     _ensureParticipants(widget.chatId, widget.otherUid);
     try {
       final myBlocked = await _getBlockedUsers(user.uid);
       if (myBlocked.contains(widget.otherUid)) {
+        restoreText();
         if (mounted) _showMessageDialog(context, 'You blocked this user. Unblock them to send messages.');
         return;
       }
@@ -3582,6 +3589,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } on FirebaseException catch (e) {
       // The server turns this away when the other person has blocked us. Their block
       // list is private to them, so we can't check it up front like we used to.
+      restoreText();
       if (e.code == 'permission-denied') {
         if (mounted) _showMessageDialog(context, 'You can no longer message this user.');
       } else if (mounted) {
@@ -3589,10 +3597,10 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       return;
     } catch (_) {
+      restoreText();
       if (mounted) _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
       return;
     }
-    _controller.clear();
 
     // Don't notify the receiver if they're already viewing this chat
     bool receiverInChat = false;
@@ -3816,7 +3824,7 @@ class _ChatScreenState extends State<ChatScreen> {
           padding: EdgeInsets.all(12), color: kChatSurface,
           child: Row(children: [
             Expanded(child: TextField(
-              controller: _controller, style: TextStyle(color: kTextPrimary),
+              controller: _controller, focusNode: _inputFocus, style: TextStyle(color: kTextPrimary),
               decoration: InputDecoration(hintText: 'Message...', hintStyle: TextStyle(color: kTextSecondary), filled: true, fillColor: kCardLight, border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10)),
               onSubmitted: (_) => _send(),
             )),
@@ -4929,7 +4937,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv0.8.5';
+  String _appVersion = 'bv1.0.0';
 
   @override
   void initState() {
