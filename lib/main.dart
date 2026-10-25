@@ -1592,30 +1592,6 @@ String _friendlyAuthError(Object error) {
                       ),
                     ),
                   ),
-                  // App Review Guideline 4.8: offering Google Sign-In obligates us to
-                  // offer Sign in with Apple as an equivalent option. iOS only for now.
-                  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) ...[
-                    const SizedBox(height: 12),
-                    _Pressable(
-                      onTap: _isLoading ? null : _signInWithApple,
-                      child: Container(
-                        width: double.infinity, height: 54,
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.85),
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.apple, size: 22, color: Colors.white),
-                            const SizedBox(width: 10),
-                            Text('Continue with Apple', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _isLoading ? const Color(0xFF94A3B8) : Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 18),
                   Row(children: [
                     const Expanded(child: Divider(color: Colors.white24)),
