@@ -589,6 +589,8 @@ async function verifyFirebaseIdToken(idToken, projectId) {
     if (payload.exp < now) return null;
     if (payload.aud !== projectId) return null;
     if (payload.iss !== 'https://securetoken.google.com/' + projectId) return null;
+    // routes read auth.uid; the raw JWT only has user_id/sub
+    payload.uid = payload.user_id || payload.sub;
     return payload;
   } catch (e) {
     return null;
