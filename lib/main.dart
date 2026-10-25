@@ -365,21 +365,8 @@ IconData _badgeIcon(String b) {
     case 'helper': return Icons.handshake_rounded;
     case 'champion': return Icons.military_tech_rounded;
     case 'legend': return Icons.workspace_premium_rounded;
-    case 'kindest_award': return Icons.volunteer_activism_rounded;
     default: return Icons.military_tech_rounded;
   }
-}
-
-// The "Kindest of the Month" award lives as kindestMonth on the user doc (written
-// by the Worker when a winner is confirmed). Surface it as a badge chip anywhere
-// badges are shown.
-List<String> _badgesWithAward(Map? data) {
-  final list = List<String>.from(data?['badges'] ?? []);
-  final km = data?['kindestMonth'];
-  if (km is String && km.isNotEmpty && !list.contains('kindest_award')) {
-    list.add('kindest_award');
-  }
-  return list;
 }
 
 IconData _levelIcon(String level) {
@@ -2502,7 +2489,7 @@ class HomeScreen extends StatelessWidget {
           final acts = data?['actsCompleted'] ?? 0;
           final username = data?['username'] ?? '';
           final streak = data?['streak'] ?? 0;
-          final badges = _badgesWithAward(data);
+          final badges = List<String>.from(data?['badges'] ?? []);
 
           return SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
@@ -4479,7 +4466,7 @@ class ProfileScreen extends StatelessWidget {
           final username = data?['username'] ?? '';
           final bio = data?['bio'] ?? '';
           final streak = data?['streak'] ?? 0;
-          final badges = _badgesWithAward(data);
+          final badges = List<String>.from(data?['badges'] ?? []);
           final bannerColorVal = data?['bannerColor'] ?? 0xFF7BAE8A;
           final frameStyle = data?['frameStyle'] ?? 'none';
           final bannerColor = Color(bannerColorVal);
@@ -4733,7 +4720,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           final joinedAt = data?['joinedAt'] as Timestamp?;
           final bio = data?['bio'] ?? '';
           final streak = data?['streak'] ?? 0;
-          final badges = _badgesWithAward(data);
+          final badges = List<String>.from(data?['badges'] ?? []);
           final bannerColor = Color(data?['bannerColor'] ?? 0xFF7BAE8A);
           final frameStyle = data?['frameStyle'] ?? 'none';
           final photoUrl = data?['photoUrl'];
@@ -5972,7 +5959,6 @@ class _BadgeChip extends StatelessWidget {
       case 'helper': return 'Helper';
       case 'champion': return 'Champion';
       case 'legend': return 'Legend';
-      case 'kindest_award': return 'Kindest of the Month';
       default: return b;
     }
   }

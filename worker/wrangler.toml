@@ -2,6 +2,3 @@ name = "kindred"
 main = "worker.js"
 compatibility_date = "2026-08-02"
 
-# Monthly "Kindest of the Month" shortlist email. Runs at 09:00 UTC on the 1st.
-[triggers]
-crons = ["0 9 1 * *"]
