@@ -1662,9 +1662,10 @@ async function handlePush(request, env) {
         }),
       }
     );
+    const fcmText = (await resp.text()).slice(0, 300);
+    console.log('push to ' + targetUid + ' fcm ' + resp.status + ' ' + fcmText);
     if (!resp.ok) {
-      const t = (await resp.text()).slice(0, 200);
-      return serverError('Push delivery failed', 502, 'fcm ' + resp.status + ' ' + t);
+      return serverError('Push delivery failed', 502, 'fcm ' + resp.status + ' ' + fcmText);
     }
     return json({ sent: true });
   } catch (e) {
