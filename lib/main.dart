@@ -1579,12 +1579,6 @@ String _friendlyAuthError(Object error) {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  Row(children: [
-                    const Expanded(child: Divider(color: Colors.white24)),
-                    const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('or with email', style: TextStyle(fontSize: 12, color: Colors.white70))),
-                    const Expanded(child: Divider(color: Colors.white24)),
-                  ]),
                 ])),
                 const SizedBox(height: 18),
                 _StaggerIn(delayMs: 200, child: Container(
@@ -1629,7 +1623,7 @@ String _friendlyAuthError(Object error) {
                       const SizedBox(height: 6),
                       TextButton(
                         onPressed: _isLoading ? null : _sendPasswordReset,
-                        child: const Text('Forgot password?', style: TextStyle(color: Colors.white)),
+                        child: Text('Forgot password?', style: TextStyle(color: kAccent)),
                       ),
                     ],
                   ]),
@@ -1721,7 +1715,7 @@ String _friendlyAuthError(Object error) {
             decoration: BoxDecoration(
               color: _ageConfirmed ? kAccent : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: _ageConfirmed ? kAccent : Colors.white38, width: 1.6),
+              border: Border.all(color: _ageConfirmed ? kAccent : kTextSecondary, width: 1.6),
             ),
             child: _ageConfirmed ? Icon(Icons.check_rounded, size: 15, color: kOnAccent) : null,
           ),
@@ -1729,19 +1723,19 @@ String _friendlyAuthError(Object error) {
           Expanded(
             child: Text.rich(
               TextSpan(children: [
-                TextSpan(text: _ageConfirmed ? 'I am 13 or older. ' : 'I confirm I am 13 or older. ', style: TextStyle(color: Colors.white70)),
+                TextSpan(text: _ageConfirmed ? 'I am 13 or older. ' : 'I confirm I am 13 or older. ', style: TextStyle(color: kTextSecondary)),
                 WidgetSpan(alignment: PlaceholderAlignment.middle,
                   child: GestureDetector(
                     onTap: () => _openExternal(context, 'https://kindred.jonahb344.workers.dev/terms'),
                     child: Text('Terms', style: TextStyle(color: kAccent, decoration: TextDecoration.underline)),
                   )),
-                TextSpan(text: ' and ', style: TextStyle(color: Colors.white70)),
+                TextSpan(text: ' and ', style: TextStyle(color: kTextSecondary)),
                 WidgetSpan(alignment: PlaceholderAlignment.middle,
                   child: GestureDetector(
                     onTap: () => _openExternal(context, 'https://kindred.jonahb344.workers.dev/privacy'),
                     child: Text('Privacy Policy', style: TextStyle(color: kAccent, decoration: TextDecoration.underline)),
                   )),
-                TextSpan(text: '.', style: TextStyle(color: Colors.white70)),
+                TextSpan(text: '.', style: TextStyle(color: kTextSecondary)),
               ]),
               style: const TextStyle(fontSize: 12.5, height: 1.5),
             ),
