@@ -1632,6 +1632,7 @@ async function handlePush(request, env) {
       targetUid !== me &&
       ((me === requester && targetUid === volunteer) || (me === volunteer && targetUid === requester));
     if (!allowed) {
+      console.log('push denied: me=' + me + ' requester=' + requester + ' volunteer=' + volunteer + ' target=' + targetUid + ' contextId=' + contextId);
       return json({ error: 'Not allowed to notify this user' }, 403);
     }
 
@@ -1642,6 +1643,7 @@ async function handlePush(request, env) {
     );
     const targetToken = fields && fields.fcmToken && fields.fcmToken.stringValue;
     if (!targetToken) {
+      console.log('push no token for target ' + targetUid);
       return json({ sent: false, message: 'No FCM token for target user' }, 200);
     }
 
