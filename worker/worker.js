@@ -68,6 +68,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/phone') {
       return handlePhone(request, env);
     }
+    if (request.method === 'GET' && url.pathname === '/admin/ai-health') {
+      return handleAiHealth(request, env);
+    }
     return json({ error: 'Not found' }, 404);
   },
 };
@@ -770,9 +773,15 @@ async function writeNotification(sa, notif) {
 
 // ─── /verify ─────────────────────────────────────────────────────────────────
 
-// Gemini model id. The "-latest" alias hot-swaps to Google's current Flash model,
-// so we don't have to chase version numbers. Change here if it ever breaks.
-const GEMINI_MODEL = 'gemini-flash-latest';
+// Gemini model id. We pin Flash-Lite because the "-latest" alias now resolves to a
+// Gemini 3.x Flash model whose lowest supported thinking level is "low", which took
+// 8-60s for a simple plausibility check. Flash-Lite does not think, so it answers in
+// about a second on the free tier.
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+
+// Fallback model: Claude Haiku is Anthropic's cheapest/fastest model, which is plenty
+// for a yes/no plausibility check. Sonnet was overkill and slower.
+const CLAUDE_MODEL = 'claude-haiku-5-5';
 
 // Ask Google Gemini to judge an act. Returns the raw text; caller extracts JSON.
 async function geminiVerifyText(prompt, imageBase64, env) {
@@ -792,14 +801,9 @@ async function geminiVerifyText(prompt, imageBase64, env) {
       signal: AbortSignal.timeout(20000),
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          maxOutputTokens: 300,
-          // The "-latest" alias currently maps to a Gemini 3.x Flash model, which
-          // defaults to HIGH thinking and can take 30-60s on a simple yes/no
-          // classification. LOW keeps the answer quality but makes it respond fast.
-          thinkingConfig: { thinkingLevel: 'MINIMAL' },
-        },
+        // Flash-Lite does not think, so no thinkingConfig is needed (and some
+        // Lite models reject one).
+        generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 300 },
       }),
     }
   );
@@ -829,7 +833,7 @@ async function anthropicVerifyText(prompt, imageBase64, env) {
       'anthropic-version': '2023-06-01',
     },
     signal: AbortSignal.timeout(20000),
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 300, messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 300, messages: [{ role: 'user', content }] }),
   });
   if (!resp.ok) {
     const errText = (await resp.text()).slice(0, 300);
@@ -837,6 +841,50 @@ async function anthropicVerifyText(prompt, imageBase64, env) {
   }
   const data = await resp.json();
   return (data.content || []).map((block) => block.text || '').join('');
+}
+
+// Admin-only provider check: confirms both AI keys work and reports latency.
+// GET /admin/ai-health?key=ADMIN_SECRET (404 when the secret isn't configured).
+async function handleAiHealth(request, env) {
+  if (!env.ADMIN_SECRET) return json({ error: 'Not found' }, 404);
+  const url = new URL(request.url);
+  const key = url.searchParams.get('key') || request.headers.get('x-admin-secret') || '';
+  if (key !== env.ADMIN_SECRET) return json({ error: 'Unauthorized' }, 401);
+  const prompt = 'Reply ONLY with this JSON: {"approved":true,"reason":"ok","category":"Other"}';
+  const result = {};
+  const providers = [
+    ['gemini', geminiVerifyText, GEMINI_MODEL, !!env.GEMINI_API_KEY],
+    ['claude', anthropicVerifyText, CLAUDE_MODEL, !!env.ANTHROPIC_API_KEY],
+  ];
+  for (const [name, fn, model, configured] of providers) {
+    if (!configured) {
+      result[name] = { configured: false, ok: false, model };
+      continue;
+    }
+    const started = Date.now();
+    try {
+      const text = await fn(prompt, null, env);
+      result[name] = {
+        configured: true,
+        ok: !!String(text || '').trim(),
+        model,
+        ms: Date.now() - started,
+        chars: String(text || '').length,
+      };
+    } catch (e) {
+      result[name] = {
+        configured: true,
+        ok: false,
+        model,
+        ms: Date.now() - started,
+        error: String((e && e.message) || e).slice(0, 200),
+      };
+    }
+  }
+  return new Response(JSON.stringify(result), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
 }
 
 async function handleVerify(request, env) {
