@@ -3231,7 +3231,7 @@ Future<Map<String, dynamic>> _callVerifyAct(String description, String? imageBas
       'description': description,
       if (imageBase64 != null) 'imageBase64': imageBase64,
     }),
-  );
+  ).timeout(const Duration(seconds: 45));
   final data = jsonDecode(response.body) as Map<String, dynamic>;
   if (response.statusCode != 200) {
     throw Exception(data['error'] ?? 'Verification failed (${response.statusCode})');

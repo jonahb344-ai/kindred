@@ -788,9 +788,18 @@ async function geminiVerifyText(prompt, imageBase64, env) {
         'Content-Type': 'application/json',
         'x-goog-api-key': env.GEMINI_API_KEY,
       },
+      // Don't let a stalled Gemini call hang the user's spinner forever.
+      signal: AbortSignal.timeout(20000),
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1024 },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 300,
+          // The "-latest" alias currently maps to a Gemini 3.x Flash model, which
+          // defaults to HIGH thinking and can take 30-60s on a simple yes/no
+          // classification. LOW keeps the answer quality but makes it respond fast.
+          thinkingConfig: { thinkingLevel: 'MINIMAL' },
+        },
       }),
     }
   );
@@ -819,6 +828,7 @@ async function anthropicVerifyText(prompt, imageBase64, env) {
       'x-api-key': env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01',
     },
+    signal: AbortSignal.timeout(20000),
     body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 300, messages: [{ role: 'user', content }] }),
   });
   if (!resp.ok) {
