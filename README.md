@@ -2,6 +2,8 @@
 
 **A neighborhood kindness app.** Post small favors you need done and get help from people nearby — or browse requests from your neighbors and be the one who shows up.
 
+**Kindred is live on the App Store** → [Download for iPhone](https://apps.apple.com/app/id6826042911)
+
 ## Features
 
 - **Post & claim requests** — ask for a Grocery Run, Lawn Care, Moving Help, Pet Care, Meal Prep, a Ride, or anything else, and let neighbors volunteer to help
@@ -13,7 +15,15 @@
 - **In-app notifications** — unread badge and notification feed for everything happening in the app
 - **Reporting** — flag bad behavior to keep the community safe
 
-## Download the APK
+## Download
+
+### iPhone / iPad — App Store
+
+Kindred is free on the App Store:
+
+**[Download Kindred](https://apps.apple.com/app/id6826042911)** · requires iOS 15 or later
+
+### Android — APK
 
 The latest signed Android release is available on the [Releases page](https://github.com/jonahb344-ai/kindred/releases).
 
@@ -25,21 +35,11 @@ Download link: [kindred.apk](https://github.com/jonahb344-ai/kindred/releases/la
 - **Allow Permissions**: Open your phone Settings, go to Apps or Security, find Install unknown apps, and turn it on for your web browser or file manager.
 - **Open the File**: Open your phone's Files or My Files app, go to the Downloads folder, and tap the APK file (it should be something like "kindred.apk").
 - **Install**: Tap Install on the screen prompt and wait for the process to finish.
-- **Run**: Open your app drawer (Usually by swiping up from the bottom of your home screen, search "Kindred" and click on it. 
-If you want the link to the web app version you can find that [here](https://kindred.smartlights.lol)
+- **Run**: Open your app drawer (usually by swiping up from the bottom of your home screen), search "Kindred" and tap it.
 
-## Install on iPhone (iOS)
+### Web
 
-The iOS build ships as an **unsigned `.ipa`**, so iOS can't install it directly — you sideload it with a free tool and a (free) Apple ID.
-
-1. Download `Kindred-v0.6.8-unsigned.ipa` from the [Releases page](https://github.com/jonahb344-ai/kindred/releases).
-2. Install [Sideloadly](https://sideloadly.io) on a Mac or Windows PC.
-3. Connect your iPhone with a USB cable and tap **Trust** on the phone if prompted.
-4. Open Sideloadly, drag the `.ipa` into it, enter your Apple ID, and click **Start**.
-5. On your iPhone, go to **Settings → General → VPN & Device Management** and tap **Trust** on the developer profile.
-6. Open **Kindred** from your home screen.
-
-> A free Apple ID signs the app for **7 days** — re-sideload (Sideloadly can auto-refresh while connected) to keep using it. A paid Apple Developer account gives a 1-year signature. iOS push notifications are not available in this unsigned build.
+Use Kindred in your browser at [kindred.smartlights.lol](https://kindred.smartlights.lol).
 
 ## License
 
