@@ -2,7 +2,7 @@ name: kindred_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.1+1
 
 environment:
   # kept wide so the same file works on both Jonah's Windows PC (newer Flutter)

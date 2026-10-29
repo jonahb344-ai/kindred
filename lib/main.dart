@@ -4894,7 +4894,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.0';
+  String _appVersion = 'bv1.0.1';
 
   @override
   void initState() {
@@ -5094,6 +5094,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: () => showDialog(context: context, builder: (_) => _KindredDialog(
                 title: 'About Kindred',
                 content: 'Kindred is a community mutual-aid app where neighbors can help neighbors with everyday tasks — completely free of charge, powered by kindness.\n\nBuilt with love to make communities stronger, one act at a time. Made with ❤️ in Bartlett, TN by Jonah B.',
+                actionText: 'Close',
+                onAction: () => Navigator.pop(context),
+              )),
+            ),
+            _SettingsTile(
+              icon: Icons.favorite_rounded,
+              title: 'Credits',
+              onTap: () => showDialog(context: context, builder: (_) => _KindredDialog(
+                title: 'Thank You',
+                content: 'Thank you to all of my supporters, including my family, Asha, Alex W, Chase, Carter, Parker, Michael, and many more!\n\nThank you so, so, so much — you all are the ones who made this app possible!',
                 actionText: 'Close',
                 onAction: () => Navigator.pop(context),
               )),
