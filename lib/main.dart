@@ -45,6 +45,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_dynamic_icon_plus/flutter_dynamic_icon_plus.dart';
+import 'feedback.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -448,8 +450,13 @@ class _KindredAppState extends State<KindredApp> {
           // seasonal modes (Halloween …) persist here too so a cold start
           // applies the skin + forced dark WITHOUT needing to open Settings
           if (data?['halloween'] == true) _halloween = true;
+          // feedback prefs live on the same doc; apply before any tap happens
+          KindredFeedback.hapticsEnabled = data?['hapticsEnabled'] != false;
+          KindredFeedback.soundsEnabled = data?['soundsEnabled'] != false;
         });
       }
+      final savedIcon = data?['appIcon'] as String?;
+      if (savedIcon != null && savedIcon != 'navy') await _applyAppIcon(savedIcon);
     } catch (_) {}
   }
 
@@ -529,15 +536,58 @@ Color get textPrimary => kTextPrimary;
 Color get textSecondary => kTextSecondary;
 
 void _haptic() {
-  // subtle tap feedback — works on mobile, no-op on web/desktop
-  try {
-    HapticFeedback.selectionClick();
-  } catch (_) {}
+  // subtle tap feedback — respects the Settings toggle, no-op on web/desktop
+  KindredFeedback.press();
 }
 
 void _hapticHeavy() {
+  KindredFeedback.heavy();
+}
+
+// ─── APP ICON ────────────────────────────────────────────────────────────────
+// iOS swaps between alternate icon sets compiled from Assets.xcassets; Android
+// flips the activity-alias entries in AndroidManifest.xml. The web build has no
+// equivalent, so the Settings tile is disabled there.
+const List<String> kAppIconIds = ['navy', 'sage', 'cream', 'pumpkin'];
+
+String _appIconLabel(String id) {
+  switch (id) {
+    case 'sage': return 'Sage';
+    case 'cream': return 'Cream';
+    case 'pumpkin': return 'Pumpkin';
+    default: return 'Navy';
+  }
+}
+
+String _appIconAsset(String id) => 'assets/icon/icon_$id.png';
+
+String? _nativeIconName(String id) {
+  if (id == 'navy') return null; // null restores the primary icon
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.iOS:
+      return 'AppIcon-${id[0].toUpperCase()}${id.substring(1)}';
+    case TargetPlatform.android:
+      return 'icon_$id';
+    default:
+      return null;
+  }
+}
+
+String _bareIconName(String? name) {
+  // Android reports the enabled alias fully qualified (com.kindred.app.DEFAULT)
+  final bare = (name ?? '').split('.').last;
+  return bare == 'DEFAULT' ? '' : bare;
+}
+
+/// Best-effort: picking an icon is a nicety and must never block anything.
+Future<void> _applyAppIcon(String id) async {
+  if (kIsWeb) return;
   try {
-    HapticFeedback.mediumImpact();
+    if (!await FlutterDynamicIconPlus.supportsAlternateIcons) return;
+    final target = _nativeIconName(id);
+    final current = await FlutterDynamicIconPlus.alternateIconName;
+    if (_bareIconName(current) == _bareIconName(target)) return;
+    await FlutterDynamicIconPlus.setAlternateIconName(iconName: target);
   } catch (_) {}
 }
 
@@ -892,7 +942,7 @@ Future<void> _updateStreak(String uid) async {
   await doc.update({'streak': streak, 'lastActDate': FieldValue.serverTimestamp()});
 }
 
-Future<void> _checkBadges(String uid, int newScore, int acts) async {
+Future<bool> _checkBadges(String uid, int newScore, int acts) async {
   final doc = FirebaseFirestore.instance.collection('users').doc(uid);
   final snap = await doc.get();
   final badges = List<String>.from(snap.data()?['badges'] ?? []);
@@ -903,7 +953,9 @@ Future<void> _checkBadges(String uid, int newScore, int acts) async {
   if (newScore >= helperThreshold && !badges.contains('helper')) newBadges.add('helper');
   if (newScore >= championThreshold && !badges.contains('champion')) newBadges.add('champion');
   if (newScore >= legendThreshold && !badges.contains('legend')) newBadges.add('legend');
-  if (newBadges.isNotEmpty) await doc.update({'badges': FieldValue.arrayUnion(newBadges)});
+  if (newBadges.isEmpty) return false;
+  await doc.update({'badges': FieldValue.arrayUnion(newBadges)});
+  return true;
 }
 
 // ─── UI HELPERS ──────────────────────────────────────────────────────────────────
@@ -1301,9 +1353,22 @@ class _LoginScreenState extends State<LoginScreen> {
         'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
         'setupDone': false, 'tutorialDone': false,
         'notifMessages': true, 'notifRequests': true,
+        'hapticsEnabled': true, 'soundsEnabled': true,
         'nearbyRadiusMi': 1.0,
         'joinedAt': FieldValue.serverTimestamp(),
       });
+    }
+    // Accounts created before that fix are stuck with the "Neighbor" placeholder even
+    // though Auth knows the real name. Repair it on sign-in so nobody has to retype it.
+    if (snap.exists) {
+      final storedName = (snap.data()?['name'] as String?)?.trim() ?? '';
+      final authName = user.displayName?.trim() ?? '';
+      final usableName = authName.isNotEmpty && authName != 'Neighbor' && !authName.contains('@');
+      if ((storedName.isEmpty || storedName == 'Neighbor') && usableName) {
+        try {
+          await doc.update({'name': authName});
+        } catch (_) {}
+      }
     }
     // iOS dev builds signed with a free Apple account can't get an APNs token
     // (push needs a paid account) — don't let that break sign-in. On TestFlight
@@ -1364,6 +1429,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (user != null) await _ensureUserDoc(user);
     } catch (e) {
       // don't surface the raw exception -- Firebase messages can echo the email address back
+      KindredFeedback.error();
       _toast('Sign in failed. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -1475,7 +1541,10 @@ class _LoginScreenState extends State<LoginScreen> {
         final user = userCredential.user;
         if (user != null) {
           await user.updateProfile(displayName: name);
-          await _ensureUserDoc(user);
+          // updateProfile replaces FirebaseAuth.currentUser with a fresh object; the one
+          // from the credential still reports displayName == null. Reading the stale one
+          // wrote the "Neighbor" fallback into the profile doc even though Auth had the name.
+          await _ensureUserDoc(FirebaseAuth.instance.currentUser ?? user);
           await user.sendEmailVerification(_verificationSettings());
         }
       } else {
@@ -1485,6 +1554,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (user != null) await _ensureUserDoc(user);
       }
     } catch (e) {
+      KindredFeedback.error();
       _toast(_friendlyAuthError(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -1904,12 +1974,33 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  // first-run setup: username, bio, phone — only shown once per account
+  // first-run setup: name, username, bio, phone — only shown once per account
+  final _nameController = TextEditingController();
   final _usernameController = TextEditingController();
   final _bioController = TextEditingController();
   final _phoneController = TextEditingController();
   bool _isLoading = false;
   int _step = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Providers like Apple only hand us a display name on the very first sign-in,
+    // so prefill whatever we already have instead of making people retype it.
+    final displayName = FirebaseAuth.instance.currentUser?.displayName?.trim() ?? '';
+    if (displayName.isNotEmpty && displayName != 'Neighbor') {
+      _nameController.text = displayName;
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _usernameController.dispose();
+    _bioController.dispose();
+    _phoneController.dispose();
+    super.dispose();
+  }
 
   InputDecoration _inputDecoration(String hint, {Widget? prefix}) => InputDecoration(
     hintText: hint,
@@ -1922,18 +2013,33 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   );
 
   Future<void> _finish() async {
-    setState(() => _isLoading = true);
+    // A name is what the leaderboard, request cards and chats show, so an account
+    // without one renders as a faceless "Neighbor". Ask for it before finishing.
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      _showMessageDialog(context, 'Please enter your name.');
+      return;
+    }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-      'username': _usernameController.text.trim(),
-      'bio': _bioController.text.trim(),
-      'setupDone': true,
-    });
-    await FirebaseFirestore.instance
-        .collection('users').doc(user.uid).collection('private').doc('data')
-        .set({'phone': _phoneController.text.trim()}, SetOptions(merge: true));
-    if (mounted) Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const TutorialScreen()), (r) => false);
+    setState(() => _isLoading = true);
+    try {
+      await user.updateProfile(displayName: name);
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'name': name,
+        'username': _usernameController.text.trim(),
+        'bio': _bioController.text.trim(),
+        'setupDone': true,
+      });
+      await FirebaseFirestore.instance
+          .collection('users').doc(user.uid).collection('private').doc('data')
+          .set({'phone': _phoneController.text.trim()}, SetOptions(merge: true));
+      if (mounted) Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const TutorialScreen()), (r) => false);
+    } catch (_) {
+      if (mounted) _showMessageDialog(context, 'Could not save your profile. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -2019,6 +2125,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       const SizedBox(height: 8),
       Text("Let's set up your profile", style: TextStyle(fontSize: 15, color: kTextSecondary)),
       const SizedBox(height: 32),
+      TextField(controller: _nameController, textCapitalization: TextCapitalization.words, style: TextStyle(color: kTextPrimary),
+          decoration: _inputDecoration('Your name')),
+      const SizedBox(height: 16),
       TextField(controller: _usernameController, style: TextStyle(color: kTextPrimary),
           decoration: _inputDecoration('Username')),
       const SizedBox(height: 16),
@@ -2289,7 +2398,12 @@ class HomeScreen extends StatelessWidget {
 
         await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
         await _updateStreak(user.uid);
-        await _checkBadges(user.uid, newScore, newActs);
+        final newBadge = await _checkBadges(user.uid, newScore, newActs);
+        if (newBadge) {
+          KindredFeedback.celebrate();
+        } else {
+          KindredFeedback.success();
+        }
 
         await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('history').add({
           'act': act, 'emoji': emoji, 'points': pts, 'approved': true, 'reason': reason,
@@ -2353,7 +2467,12 @@ class HomeScreen extends StatelessWidget {
     }
     await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
     await _updateStreak(user.uid);
-    await _checkBadges(user.uid, newScore, newActs);
+    final newBadge = await _checkBadges(user.uid, newScore, newActs);
+    if (newBadge) {
+      KindredFeedback.celebrate();
+    } else {
+      KindredFeedback.success();
+    }
     await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('history').add({
       'act': act, 'emoji': _categoryEmoji(category), 'points': pts, 'approved': true, 'reason': reason,
       'completedAt': FieldValue.serverTimestamp(),
@@ -2899,7 +3018,7 @@ class RequestCard extends StatelessWidget {
     await _completeClaim(data, docId);
 
     if (context.mounted) {
-      _hapticHeavy();
+      KindredFeedback.success();
       _showMessageDialog(context, 'Request claimed! They have been notified.');
     }
   }
@@ -2957,7 +3076,7 @@ class RequestCard extends StatelessWidget {
     }
 
     if (context.mounted) {
-      _hapticHeavy();
+      KindredFeedback.success();
       await _showConfetti(context);
       if (context.mounted) _showMessageDialog(context, 'Marked as complete!');
     }
@@ -2971,7 +3090,7 @@ class RequestCard extends StatelessWidget {
       'recipientConfirmedAt': FieldValue.serverTimestamp(),
     });
     if (context.mounted) {
-      _hapticHeavy();
+      KindredFeedback.success();
       _showMessageDialog(context, 'Thanks for confirming! This act now counts.');
     }
   }
@@ -3537,16 +3656,19 @@ class _ChatScreenState extends State<ChatScreen> {
       final myBlocked = await _getBlockedUsers(user.uid);
       if (myBlocked.contains(widget.otherUid)) {
         restoreText();
+        KindredFeedback.error();
         if (mounted) _showMessageDialog(context, 'You blocked this user. Unblock them to send messages.');
         return;
       }
       await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
         'senderId': user.uid, 'senderName': user.displayName, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
       });
+      KindredFeedback.message();
     } on FirebaseException catch (e) {
       // The server turns this away when the other person has blocked us. Their block
       // list is private to them, so we can't check it up front like we used to.
       restoreText();
+      KindredFeedback.error();
       if (e.code == 'permission-denied') {
         if (mounted) _showMessageDialog(context, 'You can no longer message this user.');
       } else if (mounted) {
@@ -3555,6 +3677,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     } catch (_) {
       restoreText();
+      KindredFeedback.error();
       if (mounted) _showMessageDialog(context, 'Message not sent. Check your connection and try again.');
       return;
     }
@@ -3667,7 +3790,12 @@ class _ChatScreenState extends State<ChatScreen> {
       await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
       // Volunteer completing their own help: full streak + badge + history update.
       await _updateStreak(user.uid);
-      await _checkBadges(user.uid, newScore, newActs);
+      final newBadge = await _checkBadges(user.uid, newScore, newActs);
+      if (newBadge) {
+        KindredFeedback.celebrate();
+      } else {
+        KindredFeedback.success();
+      }
       await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('history').add({
         'act': category, 'emoji': _categoryEmoji(category), 'points': _currentPoints, 'approved': true,
         'reason': 'Helped a neighbor',
@@ -3693,7 +3821,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
 
     if (!mounted) return;
-    _hapticHeavy();
+    KindredFeedback.success();
     await _showConfetti(context);
     if (mounted) {
       _showMessageDialog(context, 'Request marked done! You earned +$_currentPoints points.');
@@ -4221,7 +4349,9 @@ class LeaderboardScreen extends StatelessWidget {
         future: currentUid == null ? null : _blockedUsersRef(currentUid).get(),
         builder: (context, userSnap) {
           return StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').orderBy('kindnessScore', descending: true).limit(50).snapshots(),
+            stream: FirebaseFirestore.instance.collection('users')
+                .where('kindnessScore', isGreaterThan: 0)
+                .orderBy('kindnessScore', descending: true).limit(50).snapshots(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting && !snap.hasData) return const SizedBox.shrink();
               if (!snap.hasData || snap.data!.docs.isEmpty) {
@@ -4298,6 +4428,10 @@ class ProfileScreen extends StatelessWidget {
     } catch (_) {}
     if (!context.mounted) return;
     final usernameController = TextEditingController(text: data['username'] ?? '');
+    // Older/provider accounts never captured a name and stored the "Neighbor" fallback,
+    // so show an empty box (not the word) and let them set a real one.
+    final storedName = (data['name'] ?? '').toString().trim();
+    final nameController = TextEditingController(text: storedName == 'Neighbor' ? '' : storedName);
     final bioController = TextEditingController(text: data['bio'] ?? '');
     final phoneController = TextEditingController(text: phone);
     final user = FirebaseAuth.instance.currentUser;
@@ -4330,6 +4464,7 @@ class ProfileScreen extends StatelessWidget {
             TextButton(
               onPressed: () async {
                 final updates = <String, dynamic>{};
+                if (nameController.text.trim().isNotEmpty) updates['name'] = nameController.text.trim();
                 if (canEditUsername) { updates['username'] = usernameController.text.trim(); updates['bio'] = bioController.text.trim(); }
                 if (canEditBanner) updates['bannerColor'] = selectedBannerColor;
                 if (canEditFrame) updates['frameStyle'] = selectedFrame;
@@ -4369,6 +4504,10 @@ class ProfileScreen extends StatelessWidget {
                     ),
                 ])),
               ])),
+          const SizedBox(height: 16),
+          _ProfileField(title: 'Name', locked: false, lockMessage: '',
+              child: TextField(controller: nameController, textCapitalization: TextCapitalization.words, style: TextStyle(color: kTextPrimary),
+                  decoration: _fieldDecoration('Your name'))),
           const SizedBox(height: 16),
           _ProfileField(title: 'Username', locked: !canEditUsername, lockMessage: 'Reach Helper to unlock',
               child: TextField(controller: usernameController, enabled: canEditUsername, style: TextStyle(color: kTextPrimary),
@@ -4891,10 +5030,13 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifMessages = true;
   bool _notifRequests = true;
+  bool _hapticsEnabled = KindredFeedback.hapticsEnabled;
+  bool _soundsEnabled = KindredFeedback.soundsEnabled;
+  String _appIcon = 'navy';
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.1';
+  String _appVersion = 'bv1.0.2';
 
   @override
   void initState() {
@@ -4919,6 +5061,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _notifMessages = data['notifMessages'] ?? true;
       _notifRequests = data['notifRequests'] ?? true;
+      _hapticsEnabled = data['hapticsEnabled'] != false;
+      _soundsEnabled = data['soundsEnabled'] != false;
+      _appIcon = (data['appIcon'] as String?) ?? 'navy';
+      KindredFeedback.hapticsEnabled = _hapticsEnabled;
+      KindredFeedback.soundsEnabled = _soundsEnabled;
       final radius = data['nearbyRadiusMi'];
       if (radius is num && radius > 0) _nearbyRadiusMi = radius.toDouble();
       final mode = data['themeMode'] as String?;
@@ -4940,12 +5087,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) setState(() {});
   }
 
+  Future<void> _pickAppIcon() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(color: kCard, borderRadius: const BorderRadius.vertical(top: Radius.circular(28))),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SafeArea(
+          top: false,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: kDivider, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 16),
+            Text('App Icon', style: TextStyle(color: kTextPrimary, fontSize: 19, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text('Choose the icon shown on your home screen.', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 13)),
+            const SizedBox(height: 18),
+            Row(children: [
+              for (final id in kAppIconIds)
+                Expanded(child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: _Pressable(
+                    onTap: () => Navigator.pop(sheetContext, id),
+                    child: Column(children: [
+                      Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: id == _appIcon ? kAccent : Colors.transparent, width: 2.5),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(13),
+                          child: Image.asset(_appIconAsset(id), width: 54, height: 54, filterQuality: FilterQuality.medium),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(_appIconLabel(id), maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: id == _appIcon ? kAccent : kTextSecondary, fontSize: 12,
+                              fontWeight: id == _appIcon ? FontWeight.w700 : FontWeight.w500)),
+                    ]),
+                  ),
+                )),
+            ]),
+            const SizedBox(height: 14),
+            Text('On Android the new icon appears after you close Kindred.', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 11)),
+          ]),
+        ),
+      ),
+    );
+    if (picked == null || picked == _appIcon) return;
+    setState(() => _appIcon = picked);
+    await _saveSettings();
+    await _applyAppIcon(picked);
+  }
+
   Future<void> _saveSettings() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     await FirebaseFirestore.instance.collection('users').doc(uid).update({
       'notifMessages': _notifMessages,
       'notifRequests': _notifRequests,
+      'hapticsEnabled': _hapticsEnabled,
+      'soundsEnabled': _soundsEnabled,
+      'appIcon': _appIcon,
       'nearbyRadiusMi': _nearbyRadiusMi,
       'halloween': _halloween,
     });
@@ -5047,6 +5251,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 activeTrackColor: kAccent,
               ),
             ),
+            _SettingsTile(
+              icon: Icons.apps_rounded,
+              title: 'App Icon',
+              subtitle: kIsWeb
+                  ? 'Available in the iPhone and Android apps'
+                  : 'Navy, Sage, Cream or Pumpkin',
+              onTap: kIsWeb ? null : _pickAppIcon,
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.asset(_appIconAsset(_appIcon), width: 30, height: 30, filterQuality: FilterQuality.medium),
+                ),
+                const SizedBox(width: 6),
+                Icon(kIsWeb ? Icons.lock_outline_rounded : Icons.chevron_right_rounded, color: kTextSecondary, size: 20),
+              ]),
+            ),
           ]),
 
           _SettingsSection(title: 'Notifications', children: [
@@ -5059,6 +5279,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.volunteer_activism_outlined,
               title: 'Request notifications',
               trailing: CupertinoSwitch(value: _notifRequests, onChanged: (v) { setState(() => _notifRequests = v); _saveSettings(); }, activeTrackColor: kAccent),
+            ),
+          ]),
+
+          _SettingsSection(title: 'Feedback', children: [
+            _SettingsTile(
+              icon: Icons.vibration_rounded,
+              title: 'Haptics',
+              subtitle: 'A light tap when you press something',
+              trailing: CupertinoSwitch(
+                value: _hapticsEnabled,
+                onChanged: (v) {
+                  setState(() => _hapticsEnabled = v);
+                  KindredFeedback.hapticsEnabled = v;
+                  if (v) KindredFeedback.tap();
+                  _saveSettings();
+                },
+                activeTrackColor: kAccent,
+              ),
+            ),
+            _SettingsTile(
+              icon: Icons.volume_up_rounded,
+              title: 'Sound effects',
+              subtitle: 'Quiet taps, chimes and celebrations',
+              trailing: CupertinoSwitch(
+                value: _soundsEnabled,
+                onChanged: (v) {
+                  setState(() => _soundsEnabled = v);
+                  KindredFeedback.soundsEnabled = v;
+                  if (v) KindredFeedback.tap();
+                  _saveSettings();
+                },
+                activeTrackColor: kAccent,
+              ),
             ),
           ]),
 
@@ -5276,7 +5529,7 @@ class _SettingsTile extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: ListTile(
-        onTap: onTap,
+        onTap: onTap == null ? null : () { KindredFeedback.tap(); onTap!(); },
         leading: Container(width: 36, height: 36, decoration: BoxDecoration(color: (titleColor == Colors.red ? Colors.red : kAccent).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
             child: Icon(icon, color: titleColor == Colors.red ? Colors.red : kAccent, size: 19)),
         title: Text(title, style: TextStyle(color: titleColor ?? kTextPrimary, fontSize: 15, fontWeight: FontWeight.w500)),
@@ -5307,7 +5560,7 @@ class _PressableState extends State<_Pressable> {
 
   void _activate() {
     if (widget.onTap == null) return;
-    _haptic();
+    KindredFeedback.tap();
     widget.onTap!();
   }
 
@@ -5333,7 +5586,7 @@ class _PressableState extends State<_Pressable> {
         child: GestureDetector(
           onTap: widget.onTap,
           onTapDown: (_) {
-            if (widget.onTap != null) _haptic();
+            if (widget.onTap != null) KindredFeedback.tap();
             setState(() => _pressed = true);
           },
           onTapUp: (_) => setState(() => _pressed = false),
