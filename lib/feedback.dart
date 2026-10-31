@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/services.dart';
 
@@ -14,13 +16,18 @@ class KindredFeedback {
   static bool soundsEnabled = true;
 
   static final Map<String, AudioPlayer> _players = {};
-  static bool _audioContextReady = false;
+  static final Map<String, int> _lastPlayedMs = {};
+  static Future<void>? _audioContext;
 
-  /// UI sounds should be polite: respect the silent switch and duck under
+  /// UI sounds should be polite: respect the silent switch and mix under
   /// whatever else is playing instead of pausing the user's music.
-  static Future<void> _ensureAudioContext() async {
-    if (_audioContextReady) return;
-    _audioContextReady = true;
+  ///
+  /// The future is cached so the platform channel runs once, and cleared again
+  /// if it fails so a later tap can retry.
+  static Future<void> _ensureAudioContext() =>
+      _audioContext ??= _configureAudioContext();
+
+  static Future<void> _configureAudioContext() async {
     try {
       await AudioPlayer.global.setAudioContext(
         AudioContextConfig(
@@ -28,22 +35,42 @@ class KindredFeedback {
           focus: AudioContextConfigFocus.mixWithOthers,
         ).build(),
       );
+    } catch (_) {
+      _audioContext = null;
+    }
+  }
+
+  /// Builds the players up front so the first real tap is not delayed by
+  /// allocating one (and warming the audio session) on the interaction itself.
+  static Future<void> warmUp() async {
+    try {
+      await _ensureAudioContext();
+      for (final name in const ['tap', 'message', 'success', 'level_up', 'error']) {
+        _playerFor(name);
+      }
     } catch (_) {}
   }
 
-  static Future<void> _sound(String name, {double volume = 0.6}) async {
-    if (!soundsEnabled) return;
-    try {
-      await _ensureAudioContext();
-      final player = _players.putIfAbsent(name, () {
+  static AudioPlayer _playerFor(String name) => _players.putIfAbsent(name, () {
         final p = AudioPlayer();
+        // Keep the decoded source so replays start instantly. The default
+        // (media) player mode is used on purpose: lowLatency on Android routes
+        // through SoundPool, which ignores per-play volume and can drop or
+        // stutter rapid replays — that is what made the taps feel off.
         p.setReleaseMode(ReleaseMode.stop);
-        p.setPlayerMode(PlayerMode.lowLatency);
         return p;
       });
-      // Re-playing restarts from the top; stop first so rapid taps don't queue up.
-      await player.stop();
-      await player.play(AssetSource('sounds/$name.wav'), volume: volume);
+
+  static Future<void> _sound(String name, {double volume = 0.5}) async {
+    if (!soundsEnabled) return;
+    // Two widgets can react to the same interaction (a card and the button
+    // inside it); without this the same clip fires twice and sounds doubled.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - (_lastPlayedMs[name] ?? 0) < 45) return;
+    _lastPlayedMs[name] = now;
+    try {
+      await _ensureAudioContext();
+      await _playerFor(name).play(AssetSource('sounds/$name.wav'), volume: volume);
     } catch (_) {}
   }
 
@@ -56,8 +83,8 @@ class KindredFeedback {
 
   /// Every button/card press: a barely-there tick plus a soft click.
   static Future<void> tap() async {
-    await _haptic(HapticFeedback.selectionClick);
-    await _sound('tap', volume: 0.35);
+    unawaited(_haptic(HapticFeedback.selectionClick));
+    unawaited(_sound('tap', volume: 0.22));
   }
 
   /// Something changed state without being a "win" (claiming, opening, toggling).
@@ -72,26 +99,26 @@ class KindredFeedback {
 
   /// A request was claimed/completed/confirmed, or an act was verified.
   static Future<void> success() async {
-    await _haptic(HapticFeedback.mediumImpact);
-    await _sound('success');
+    unawaited(_haptic(HapticFeedback.mediumImpact));
+    unawaited(_sound('success', volume: 0.5));
   }
 
-  /// A message sent or arrived.
+  /// A message arrived in the conversation you are looking at.
   static Future<void> message() async {
-    await _haptic(HapticFeedback.lightImpact);
-    await _sound('message', volume: 0.5);
+    unawaited(_haptic(HapticFeedback.lightImpact));
+    unawaited(_sound('message', volume: 0.4));
   }
 
   /// Level up, new badge, streak milestone.
   static Future<void> celebrate() async {
-    await _haptic(HapticFeedback.heavyImpact);
-    await _sound('level_up', volume: 0.7);
+    unawaited(_haptic(HapticFeedback.heavyImpact));
+    unawaited(_sound('level_up', volume: 0.6));
   }
 
   /// A failed action the user needs to notice.
   static Future<void> error() async {
-    await _haptic(HapticFeedback.heavyImpact);
-    await _sound('error', volume: 0.5);
+    unawaited(_haptic(HapticFeedback.heavyImpact));
+    unawaited(_sound('error', volume: 0.45));
   }
 
   static Future<void> dispose() async {

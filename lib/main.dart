@@ -453,6 +453,7 @@ class _KindredAppState extends State<KindredApp> {
           // feedback prefs live on the same doc; apply before any tap happens
           KindredFeedback.hapticsEnabled = data?['hapticsEnabled'] != false;
           KindredFeedback.soundsEnabled = data?['soundsEnabled'] != false;
+          KindredFeedback.warmUp();
         });
       }
       final savedIcon = data?['appIcon'] as String?;
@@ -534,11 +535,6 @@ Color get cardColor => kCard;
 Color get accent => kAccent;
 Color get textPrimary => kTextPrimary;
 Color get textSecondary => kTextSecondary;
-
-void _haptic() {
-  // subtle tap feedback — respects the Settings toggle, no-op on web/desktop
-  KindredFeedback.press();
-}
 
 void _hapticHeavy() {
   KindredFeedback.heavy();
@@ -3570,6 +3566,9 @@ class _ChatScreenState extends State<ChatScreen> {
   final _inputFocus = FocusNode();
   final _scrollController = ScrollController();
   String? _blocked;
+  // Newest message seen while this chat is open, so an arriving message can
+  // give a soft ping without the initial history doing it too.
+  String? _lastMessageId;
 
   Future<void> _ensureParticipants(String chatId, String otherUid) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -3663,7 +3662,6 @@ class _ChatScreenState extends State<ChatScreen> {
       await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
         'senderId': user.uid, 'senderName': user.displayName, 'text': text, 'createdAt': FieldValue.serverTimestamp(),
       });
-      KindredFeedback.message();
     } on FirebaseException catch (e) {
       // The server turns this away when the other person has blocked us. Their block
       // list is private to them, so we can't check it up front like we used to.
@@ -3821,7 +3819,6 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
 
     if (!mounted) return;
-    KindredFeedback.success();
     await _showConfetti(context);
     if (mounted) {
       _showMessageDialog(context, 'Request marked done! You earned +$_currentPoints points.');
@@ -3882,6 +3879,14 @@ class _ChatScreenState extends State<ChatScreen> {
             }
             if (!snap.hasData || snap.data!.docs.isEmpty) {
               return Center(child: Text('No messages yet. Say hello!', style: TextStyle(color: kTextSecondary)));
+            }
+            final newest = snap.data!.docs.last;
+            if (_lastMessageId == null) {
+              _lastMessageId = newest.id;
+            } else if (_lastMessageId != newest.id) {
+              _lastMessageId = newest.id;
+              final sender = (newest.data() as Map<String, dynamic>)['senderId'];
+              if (sender != currentUid) KindredFeedback.message();
             }
             return ListView.builder(
               controller: _scrollController, padding: const EdgeInsets.all(16),
@@ -4248,7 +4253,7 @@ class _NearbyMapState extends State<_NearbyMap> {
                 ),
                 const SizedBox(height: 8),
                 _Pressable(
-                  onTap: () => setState(() { _satellite = !_satellite; _haptic(); }),
+                  onTap: () => setState(() => _satellite = !_satellite),
                   pressedScale: 0.9,
                   child: Container(
                     padding: const EdgeInsets.all(10),
@@ -4282,7 +4287,6 @@ class _NearbyMapState extends State<_NearbyMap> {
   }
 
   void _showDetail(BuildContext context, Map<String, dynamic> data, String docId) {
-    _hapticHeavy();
     showModalBottomSheet(context: context, backgroundColor: Colors.transparent, builder: (_) => Container(
       decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       padding: const EdgeInsets.all(24),
@@ -5036,7 +5040,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.2';
+  String _appVersion = 'bv1.0.3';
 
   @override
   void initState() {
@@ -5221,7 +5225,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.brightness_auto_rounded,
                 title: 'Theme',
                 titleColor: _halloween ? kTextSecondary : null,
-                subtitle: _halloween ? 'Locked to dark while Halloween Mode is on' : null,
                 trailing: Text(_halloween ? 'Dark' : _themeLabel(_themeMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
                 onTap: _halloween ? null : () async {
                   final v = await _showActionSheet<ThemeMode>(context, title: 'Theme', actions: [
@@ -5239,7 +5242,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.bug_report_rounded,
               title: 'Halloween Mode',
-              subtitle: 'Pumpkin orange + spooky purple theme (forces dark mode)',
               trailing: CupertinoSwitch(
                 value: _halloween,
                 onChanged: (v) {
@@ -5254,9 +5256,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.apps_rounded,
               title: 'App Icon',
-              subtitle: kIsWeb
-                  ? 'Available in the iPhone and Android apps'
-                  : 'Navy, Sage, Cream or Pumpkin',
               onTap: kIsWeb ? null : _pickAppIcon,
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 ClipRRect(
@@ -5286,7 +5285,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.vibration_rounded,
               title: 'Haptics',
-              subtitle: 'A light tap when you press something',
               trailing: CupertinoSwitch(
                 value: _hapticsEnabled,
                 onChanged: (v) {
@@ -5301,7 +5299,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.volume_up_rounded,
               title: 'Sound effects',
-              subtitle: 'Quiet taps, chimes and celebrations',
               trailing: CupertinoSwitch(
                 value: _soundsEnabled,
                 onChanged: (v) {
@@ -5319,7 +5316,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.radar_rounded,
               title: 'Nearby search radius',
-              subtitle: 'Only requests within this distance count as nearby.',
               trailing: Text('${_nearbyRadiusMi.toStringAsFixed(_nearbyRadiusMi == _nearbyRadiusMi.roundToDouble() ? 0 : 1)} mi', style: TextStyle(color: kAccent, fontWeight: FontWeight.w700, fontSize: 14)),
             ),
             Padding(
@@ -5521,8 +5517,7 @@ class _SettingsTile extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final Color? titleColor;
-  final String? subtitle;
-  const _SettingsTile({required this.icon, required this.title, this.trailing, this.onTap, this.titleColor, this.subtitle});
+  const _SettingsTile({required this.icon, required this.title, this.trailing, this.onTap, this.titleColor});
 
   @override
   Widget build(BuildContext context) {
@@ -5533,7 +5528,6 @@ class _SettingsTile extends StatelessWidget {
         leading: Container(width: 36, height: 36, decoration: BoxDecoration(color: (titleColor == Colors.red ? Colors.red : kAccent).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
             child: Icon(icon, color: titleColor == Colors.red ? Colors.red : kAccent, size: 19)),
         title: Text(title, style: TextStyle(color: titleColor ?? kTextPrimary, fontSize: 15, fontWeight: FontWeight.w500)),
-        subtitle: subtitle == null ? null : Text(subtitle!, style: TextStyle(color: kTextSecondary, fontSize: 12)),
         trailing: trailing ?? (onTap != null ? Icon(Icons.chevron_right_rounded, color: kTextSecondary, size: 20) : null),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       ),
@@ -5585,11 +5579,13 @@ class _PressableState extends State<_Pressable> {
         onShowFocusHighlight: (v) { if (_focused != v) setState(() => _focused = v); },
         child: GestureDetector(
           onTap: widget.onTap,
-          onTapDown: (_) {
+          onTapDown: (_) => setState(() => _pressed = true),
+          // Feedback fires on a completed tap, not on touch-down: a scroll
+          // starts with a tap-down too, and ticking on every drag felt broken.
+          onTapUp: (_) {
+            setState(() => _pressed = false);
             if (widget.onTap != null) KindredFeedback.tap();
-            setState(() => _pressed = true);
           },
-          onTapUp: (_) => setState(() => _pressed = false),
           onTapCancel: () => setState(() => _pressed = false),
           child: AnimatedScale(
             // no squash when the OS asks for reduced motion
