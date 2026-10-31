@@ -1541,7 +1541,11 @@ class _LoginScreenState extends State<LoginScreen> {
           // from the credential still reports displayName == null. Reading the stale one
           // wrote the "Neighbor" fallback into the profile doc even though Auth had the name.
           await _ensureUserDoc(FirebaseAuth.instance.currentUser ?? user);
-          await user.sendEmailVerification(_verificationSettings());
+          // Prefer the 6-digit code; if the Worker can't send one (no key, quota,
+          // network) fall back to Firebase's link email so signup never blocks.
+          if (!await _requestEmailCode()) {
+            await user.sendEmailVerification(_verificationSettings());
+          }
         }
       } else {
         final userCredential = await FirebaseAuth.instance
@@ -1570,6 +1574,24 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isValidEmail(String email) {
     return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
   }
+
+// Asks the Worker to email a 6-digit verification code. Returns false when the
+// code route is unavailable so callers can fall back to Firebase's link email.
+Future<bool> _requestEmailCode() async {
+  if (FirebaseAuth.instance.currentUser == null) return false;
+  try {
+    final resp = await http
+        .post(
+          Uri.parse('$kServerBaseUrl/send-code'),
+          headers: {'Content-Type': 'application/json', ...await _authHeaders()},
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 20));
+    return resp.statusCode == 200;
+  } catch (_) {
+    return false;
+  }
+}
 
 String _friendlyAuthError(Object error) {
   // map Firebase error codes to plain-English messages
@@ -2054,7 +2076,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
             const SizedBox(height: 26),
             Text('Verify your email', textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: kTextPrimary, letterSpacing: -0.5)),
             const SizedBox(height: 12),
-            Text('We sent a verification link to', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: kTextSecondary)),
+            Text('We sent a verification email to', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: kTextSecondary)),
             const SizedBox(height: 2),
             Text(email, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kAccent)),
             const SizedBox(height: 10),
@@ -5188,7 +5210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.4';
+  String _appVersion = 'bv1.0.5';
 
   @override
   void initState() {
