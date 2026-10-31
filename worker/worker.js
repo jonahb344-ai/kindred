@@ -68,6 +68,12 @@ export default {
     if (request.method === 'POST' && url.pathname === '/phone') {
       return handlePhone(request, env);
     }
+    if (request.method === 'POST' && url.pathname === '/send-code') {
+      return handleSendCode(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/verify-code') {
+      return handleVerifyCode(request, env);
+    }
     if (request.method === 'GET' && url.pathname === '/admin/ai-health') {
       return handleAiHealth(request, env);
     }
@@ -769,6 +775,180 @@ async function writeNotification(sa, notif) {
     }
   );
   return resp.ok;
+}
+
+// ─── Email verification codes ────────────────────────────────────────────────
+//
+// Firebase's own email verification is link-only, so codes are sent from here:
+// Resend (free tier: 100/day, 3,000/month) mails a 6-digit code, only a salted
+// hash is stored on the user's private doc, and a successful check flips
+// `emailVerified` through the Identity Toolkit admin API. If RESEND_API_KEY is
+// unset the app falls back to Firebase's link flow, and if Resend reports a
+// quota/rate limit the app tells the user to contact support instead of failing
+// silently.
+
+const CODE_TTL_MS = 10 * 60 * 1000;
+const CODE_RESEND_MS = 60 * 1000;
+const CODE_MAX_ATTEMPTS = 6;
+
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function codeHash(code, uid, env) {
+  return sha256Hex(code + ':' + uid + ':' + (env.CODE_PEPPER || 'kindred-code'));
+}
+
+// PATCH (not :commit update) so the private doc is created when it is missing.
+async function writePrivateData(sa, uid, fields) {
+  const oauth = await getOAuthToken(sa);
+  const mask = Object.keys(fields)
+    .map((k) => 'updateMask.fieldPaths=' + encodeURIComponent(k))
+    .join('&');
+  const body = {};
+  for (const [k, v] of Object.entries(fields)) {
+    body[k] = typeof v === 'number' ? { integerValue: String(v) } : { stringValue: String(v) };
+  }
+  const resp = await fetch(
+    'https://firestore.googleapis.com/v1/projects/' +
+      sa.project_id +
+      '/databases/(default)/documents/users/' +
+      uid +
+      '/private/data?' +
+      mask,
+    {
+      method: 'PATCH',
+      headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: body }),
+    }
+  );
+  if (!resp.ok) {
+    console.error('[kindred] writePrivateData failed ' + resp.status + ': ' + (await resp.text()).slice(0, 200));
+  }
+  return resp.ok;
+}
+
+async function sendCodeEmail(env, to, code) {
+  if (!env.RESEND_API_KEY) return { ok: false, reason: 'not_configured' };
+  const from = env.MAIL_FROM || 'Kindred <onboarding@resend.dev>';
+  const resp = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject: 'Your Kindred code: ' + code,
+      html:
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;background:#F4F6F6">' +
+        '<div style="max-width:420px;margin:0 auto;background:#fff;border-radius:20px;padding:28px">' +
+        '<h1 style="margin:0 0 8px;font-size:20px;color:#1C1C1E">Your verification code</h1>' +
+        '<p style="margin:0 0 20px;font-size:14px;color:#6B7280">Enter this code in Kindred to verify your email. It expires in 10 minutes.</p>' +
+        '<div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#3F635E;text-align:center;padding:16px;background:#F4F6F6;border-radius:14px">' +
+        code +
+        '</div>' +
+        '<p style="margin:20px 0 0;font-size:12px;color:#6B7280">If you did not create a Kindred account, you can ignore this email.</p>' +
+        '</div></div>',
+    }),
+  });
+  if (resp.ok) return { ok: true };
+  const detail = (await resp.text()).slice(0, 300);
+  console.error('[kindred] resend failed ' + resp.status + ': ' + detail);
+  const limited = resp.status === 429 || /quota|rate.?limit/i.test(detail);
+  return { ok: false, reason: limited ? 'quota' : 'send_failed' };
+}
+
+async function setEmailVerified(sa, uid) {
+  const oauth = await getOAuthToken(sa);
+  const resp = await fetch(
+    'https://identitytoolkit.googleapis.com/v1/projects/' + sa.project_id + '/accounts:update',
+    {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ localId: uid, emailVerified: true }),
+    }
+  );
+  if (!resp.ok) {
+    console.error('[kindred] setEmailVerified failed ' + resp.status + ': ' + (await resp.text()).slice(0, 200));
+  }
+  return resp.ok;
+}
+
+async function handleSendCode(request, env) {
+  const sa = getServiceAccount(env);
+  if (!sa) return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
+  const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
+  if (!auth) return json({ error: 'Unauthorized' }, 401);
+
+  const email = String(auth.email || '').trim();
+  if (!email) return json({ error: 'no_email' }, 400);
+  if (!env.RESEND_API_KEY) return json({ error: 'not_configured' }, 503);
+  if (!rateLimit('code:' + auth.uid, 4, 60)) return json({ error: 'rate_limited' }, 429);
+
+  let prev = {};
+  try {
+    prev = (await readFirestoreDoc(await getOAuthToken(sa), sa.project_id, 'users/' + auth.uid + '/private/data')) || {};
+  } catch (_) {}
+  const lastSent = fieldValue(prev, 'emailCodeSentAt') || 0;
+  if (lastSent && Date.now() - lastSent < CODE_RESEND_MS) {
+    return json({ error: 'cooldown', retryAfterMs: CODE_RESEND_MS - (Date.now() - lastSent) }, 429);
+  }
+
+  const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
+  const sent = await sendCodeEmail(env, email, code);
+  if (!sent.ok) {
+    if (sent.reason === 'quota') return json({ error: 'quota' }, 503);
+    if (sent.reason === 'not_configured') return json({ error: 'not_configured' }, 503);
+    return json({ error: 'send_failed' }, 502);
+  }
+
+  const now = Date.now();
+  await writePrivateData(sa, auth.uid, {
+    emailCodeHash: await codeHash(code, auth.uid, env),
+    emailCodeExpiresAt: now + CODE_TTL_MS,
+    emailCodeAttempts: 0,
+    emailCodeSentAt: now,
+  });
+  return json({ sent: true });
+}
+
+async function handleVerifyCode(request, env) {
+  const sa = getServiceAccount(env);
+  if (!sa) return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
+  const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
+  if (!auth) return json({ error: 'Unauthorized' }, 401);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
+  const code = String(body.code || '').trim();
+  if (!/^\d{6}$/.test(code)) return json({ error: 'bad_code' }, 400);
+  if (!rateLimit('vcode:' + auth.uid, 12, 60)) return json({ error: 'rate_limited' }, 429);
+
+  let doc = {};
+  try {
+    doc = (await readFirestoreDoc(await getOAuthToken(sa), sa.project_id, 'users/' + auth.uid + '/private/data')) || {};
+  } catch (_) {}
+  const hash = fieldValue(doc, 'emailCodeHash') || '';
+  const expiresAt = fieldValue(doc, 'emailCodeExpiresAt') || 0;
+  const attempts = fieldValue(doc, 'emailCodeAttempts') || 0;
+
+  if (!hash) return json({ error: 'no_code' }, 400);
+  if (Date.now() > expiresAt) return json({ error: 'expired' }, 400);
+  if (attempts >= CODE_MAX_ATTEMPTS) return json({ error: 'too_many_attempts' }, 429);
+
+  if ((await codeHash(code, auth.uid, env)) !== hash) {
+    await writePrivateData(sa, auth.uid, { emailCodeAttempts: attempts + 1 });
+    return json({ error: 'bad_code', attemptsLeft: Math.max(0, CODE_MAX_ATTEMPTS - attempts - 1) }, 400);
+  }
+
+  const verified = await setEmailVerified(sa, auth.uid);
+  await writePrivateData(sa, auth.uid, { emailCodeHash: '', emailCodeExpiresAt: 0, emailCodeAttempts: 0 });
+  if (!verified) return json({ error: 'verify_failed' }, 502);
+  return json({ verified: true });
 }
 
 // ─── /verify ─────────────────────────────────────────────────────────────────

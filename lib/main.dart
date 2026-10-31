@@ -1844,8 +1844,13 @@ class VerifyEmailScreen extends StatefulWidget {
 }
 
 class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
-  bool _sending = false;
+  bool _sendingLink = false;
   bool _checking = false;
+  bool _sendingCode = false;
+  bool _verifyingCode = false;
+  int _cooldown = 0;
+  Timer? _cooldownTimer;
+  final TextEditingController _codeController = TextEditingController();
 
   User? get _user => FirebaseAuth.instance.currentUser;
 
@@ -1853,6 +1858,26 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshStatus());
+  }
+
+  @override
+  void dispose() {
+    _cooldownTimer?.cancel();
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  void _startCooldown(int seconds) {
+    _cooldownTimer?.cancel();
+    setState(() => _cooldown = seconds);
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _cooldown = _cooldown > 0 ? _cooldown - 1 : 0);
+      if (_cooldown == 0) t.cancel();
+    });
   }
 
   Future<void> _refreshStatus() async {
@@ -1877,22 +1902,114 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     await Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => next), (route) => false);
   }
 
-  Future<void> _resend() async {
-    setState(() => _sending = true);
+  Future<void> _resendLink() async {
+    setState(() => _sendingLink = true);
     try {
       await _user?.sendEmailVerification(ActionCodeSettings(
         url: 'https://kindred.jonahb344.workers.dev/verified',
         handleCodeInApp: false,
       ));
       if (mounted) {
-        _showMessageDialog(context, 'Verification email sent — check your inbox.');
+        _showMessageDialog(context, 'Verification link sent — check your inbox.');
       }
     } catch (e) {
       if (mounted) {
         _showMessageDialog(context, 'Could not send: $e');
       }
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) setState(() => _sendingLink = false);
+    }
+  }
+
+  Future<Map<String, dynamic>> _postAuth(String path, Map<String, dynamic> body) async {
+    final resp = await http
+        .post(
+          Uri.parse('$kServerBaseUrl$path'),
+          headers: {'Content-Type': 'application/json', ...await _authHeaders()},
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 20));
+    try {
+      return jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (_) {
+      return {'error': 'http_${resp.statusCode}'};
+    }
+  }
+
+  Future<void> _sendCode() async {
+    if (_sendingCode || _cooldown > 0) return;
+    setState(() => _sendingCode = true);
+    try {
+      final data = await _postAuth('/send-code', {});
+      if (data['sent'] == true) {
+        _startCooldown(60);
+        if (mounted) _showMessageDialog(context, 'Code sent — check your inbox (and spam folder).');
+        return;
+      }
+      final err = data['error']?.toString();
+      if (err == 'cooldown') {
+        final secs = (((data['retryAfterMs'] as num?)?.toInt() ?? 60000) / 1000).ceil();
+        _startCooldown(secs);
+        if (mounted) _showMessageDialog(context, 'Just sent — wait $secs seconds before requesting another code.');
+      } else if (err == 'not_configured') {
+        if (mounted) {
+          _showMessageDialog(context, 'Codes are unavailable right now, so we sent you a verification link instead.');
+        }
+        await _resendLink();
+      } else if (err == 'quota') {
+        if (mounted) {
+          _showMessageDialog(context,
+              'Email codes are temporarily unavailable. Please contact jonahb344+kindred@gmail.com and we will verify your account for you.');
+        }
+      } else if (err == 'rate_limited') {
+        if (mounted) _showMessageDialog(context, 'Too many attempts — please wait a minute and try again.');
+      } else {
+        if (mounted) _showMessageDialog(context, 'Could not send a code right now. Try the email link instead.');
+      }
+    } catch (_) {
+      if (mounted) _showMessageDialog(context, 'Could not send a code right now. Try the email link instead.');
+    } finally {
+      if (mounted) setState(() => _sendingCode = false);
+    }
+  }
+
+  Future<void> _verifyCode() async {
+    final code = _codeController.text.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      _showMessageDialog(context, 'Enter the 6-digit code from your email.');
+      return;
+    }
+    setState(() => _verifyingCode = true);
+    try {
+      final data = await _postAuth('/verify-code', {'code': code});
+      if (!mounted) return;
+      if (data['verified'] == true) {
+        final user = FirebaseAuth.instance.currentUser;
+        await user?.reload();
+        final fresh = FirebaseAuth.instance.currentUser;
+        if (fresh != null && fresh.emailVerified && mounted) {
+          await _goNext(fresh);
+        }
+        return;
+      }
+      final err = data['error']?.toString();
+      if (err == 'bad_code') {
+        final left = (data['attemptsLeft'] as num?)?.toInt();
+        _showMessageDialog(
+            context, left == null || left <= 0 ? 'That code is not right.' : 'That code is not right — $left tries left.');
+      } else if (err == 'expired' || err == 'no_code') {
+        _showMessageDialog(context, 'That code expired. Tap "Email me a code" for a new one.');
+      } else if (err == 'too_many_attempts') {
+        _showMessageDialog(context, 'Too many wrong codes. Request a new code and try again.');
+      } else if (err == 'rate_limited') {
+        _showMessageDialog(context, 'Too many attempts — please wait a minute and try again.');
+      } else {
+        _showMessageDialog(context, 'Could not verify that code right now. Please try again.');
+      }
+    } catch (_) {
+      if (mounted) _showMessageDialog(context, 'Could not verify that code right now. Please try again.');
+    } finally {
+      if (mounted) setState(() => _verifyingCode = false);
     }
   }
 
@@ -1941,13 +2058,44 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
             const SizedBox(height: 2),
             Text(email, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kAccent)),
             const SizedBox(height: 10),
-            Text('Open the email and tap the link to verify your account. Don\'t see it? Check your spam folder.', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: kTextSecondary, height: 1.5)),
-            const SizedBox(height: 34),
+            Text('Enter the 6-digit code we email you, or use a link.', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: kTextSecondary, height: 1.5)),
+            const SizedBox(height: 26),
+            TextField(
+              controller: _codeController,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              maxLength: 6,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: 10, color: kTextPrimary),
+              cursorColor: kAccent,
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: '------',
+                hintStyle: TextStyle(fontSize: 26, letterSpacing: 10, color: kTextSecondary.withValues(alpha: 0.35)),
+                filled: true,
+                fillColor: kCard,
+                contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: kDivider)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: kAccent, width: 1.5)),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _KindredButton(label: 'Verify code', loading: _verifyingCode, onPressed: _verifyingCode ? null : _verifyCode),
+            const SizedBox(height: 6),
+            TextButton(
+              onPressed: (_sendingCode || _cooldown > 0) ? null : _sendCode,
+              child: Text(
+                _cooldown > 0 ? 'Resend code in ${_cooldown}s' : (_sendingCode ? 'Sending…' : 'Email me a code'),
+                style: TextStyle(color: _cooldown > 0 ? kTextSecondary : kAccent, fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(height: 4),
             _KindredButton(label: 'I\'ve verified — Continue', loading: _checking, onPressed: _checking ? null : _checkVerified),
             const SizedBox(height: 10),
             TextButton(
-              onPressed: _sending ? null : _resend,
-              child: Text('Resend verification email', style: TextStyle(color: kAccent, fontWeight: FontWeight.w700)),
+              onPressed: _sendingLink ? null : _resendLink,
+              child: Text('Use a link instead', style: TextStyle(color: kAccent, fontWeight: FontWeight.w700)),
             ),
             const SizedBox(height: 18),
             TextButton(
@@ -5040,7 +5188,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.3';
+  String _appVersion = 'bv1.0.4';
 
   @override
   void initState() {
