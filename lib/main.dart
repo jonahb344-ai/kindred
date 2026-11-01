@@ -2465,7 +2465,6 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true,
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 260),
         switchInCurve: Curves.easeOutCubic,
@@ -2488,17 +2487,32 @@ class _MainScreenState extends State<MainScreen> {
           final docs = snap.data?.docs ?? [];
           final chatUnread = docs.where((d) => (d.data() as Map)['chatId'] != null).length;
           final helpUnread = docs.length - chatUnread;
-          return _GlassPanel(
+          return Container(
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(24), boxShadow: [kCardShadow]),
             child: SafeArea(
               top: false,
-              child: Row(children: [
+              child: Stack(children: [
+                Positioned.fill(
+                  child: AnimatedAlign(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment(-1 + _currentIndex * 0.5, 0),
+                    child: const FractionallySizedBox(
+                      widthFactor: 0.2,
+                      heightFactor: 1,
+                      child: Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: _GlassPill()),
+                    ),
+                  ),
+                ),
+                Row(children: [
                 _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home', selected: _currentIndex == 0, onTap: () => setState(() => _currentIndex = 0)),
                 _NavItem(icon: Icons.volunteer_activism_outlined, activeIcon: Icons.volunteer_activism_rounded, label: 'Help', selected: _currentIndex == 1, badge: helpUnread, onTap: () => setState(() => _currentIndex = 1)),
                 _NavItem(icon: Icons.leaderboard_outlined, activeIcon: Icons.leaderboard_rounded, label: 'Leaders', selected: _currentIndex == 2, onTap: () => setState(() => _currentIndex = 2)),
                 _NavItem(icon: Icons.chat_bubble_outline_rounded, activeIcon: Icons.chat_bubble_rounded, label: 'Messages', selected: _currentIndex == 3, badge: chatUnread, onTap: () => setState(() => _currentIndex = 3)),
                 _NavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'Profile', selected: _currentIndex == 4, onTap: () => setState(() => _currentIndex = 4)),
+                ]),
               ]),
             ),
           );
@@ -5211,7 +5225,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.6';
+  String _appVersion = 'bv1.0.7';
 
   @override
   void initState() {
@@ -6316,32 +6330,20 @@ class _SuccessState extends StatelessWidget {
   }
 }
 
-// Real Liquid Glass on iOS (native UIGlassEffect, iOS 26+); everywhere else it is
-// the same rounded card we already shipped.
-class _GlassPanel extends StatelessWidget {
-  final Widget child;
-  final EdgeInsets margin;
-  final EdgeInsets padding;
-  const _GlassPanel({required this.child, this.margin = EdgeInsets.zero, this.padding = EdgeInsets.zero});
+// The little sliding glass bubble behind the selected tab. Real UIGlassEffect on
+// iOS, a soft tinted pill everywhere else.
+class _GlassPill extends StatelessWidget {
+  const _GlassPill();
 
   @override
   Widget build(BuildContext context) {
-    const radius = BorderRadius.all(Radius.circular(24));
+    const radius = BorderRadius.all(Radius.circular(18));
     final ios = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-    return Container(
-      margin: margin,
-      decoration: BoxDecoration(borderRadius: radius, boxShadow: [kCardShadow]),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: Stack(children: [
-          Positioned.fill(
-            child: ios
-                ? UiKitView(viewType: 'kindred/glass', hitTestBehavior: PlatformViewHitTestBehavior.transparent)
-                : Container(color: kCard),
-          ),
-          Padding(padding: padding, child: child),
-        ]),
-      ),
+    return ClipRRect(
+      borderRadius: radius,
+      child: ios
+          ? UiKitView(viewType: 'kindred/glass', hitTestBehavior: PlatformViewHitTestBehavior.transparent)
+          : Container(decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.12), borderRadius: radius)),
     );
   }
 }
