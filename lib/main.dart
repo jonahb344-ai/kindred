@@ -3078,13 +3078,20 @@ class RequestFeedTab extends StatelessWidget {
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
         }
-        // Filter out blocked users
-        return FutureBuilder<DocumentSnapshot>(
+        // Filter out blocked users and requests outside your radius
+        return FutureBuilder<_Viewer>(
+          future: currentUid == null ? null : _loadViewer(currentUid),
+          builder: (context, viewerSnap) => FutureBuilder<DocumentSnapshot>(
           future: currentUid == null ? null : _blockedUsersRef(currentUid).get(),
           builder: (context, userSnap) {
             final allDocs = snapshot.data!.docs;
             final blockedUsers = _safeBlockedList(userSnap.data);
-            final docs = allDocs.where((d) => !blockedUsers.contains((d.data() as Map)['requesterId'])).toList();
+            final viewer = viewerSnap.data;
+            final docs = allDocs.where((d) {
+              final data = d.data() as Map<String, dynamic>;
+              if (blockedUsers.contains(data['requesterId'])) return false;
+              return viewer == null || _inViewerRange(data, viewer);
+            }).toList();
             if (docs.isEmpty && allDocs.isNotEmpty && blockedUsers.isNotEmpty) {
               // might be all blocked; still show empty state but don't block
               return const _EmptyState(icon: Icons.inbox_rounded, title: 'No open requests right now', subtitle: 'Check back soon or post one yourself');
@@ -3098,6 +3105,7 @@ class RequestFeedTab extends StatelessWidget {
               itemBuilder: (context, i) => RequestCard(docId: ordered[i].id, data: ordered[i].data() as Map<String, dynamic>),
             );
           },
+          ),
         );
       },
     );
@@ -3696,12 +3704,14 @@ void _showPostRequestSheet(BuildContext context) {
             if (!_canPost()) { _showMessageDialog(context, 'Please wait a moment before posting again.'); return; }
             final pos = await _getCurrentPosition();
             if (pos != null) await _saveMyLocation(pos);
+            final spot = pos == null ? null : _approxSpot(pos.latitude, pos.longitude);
             final ref = await FirebaseFirestore.instance.collection('requests').add({
               'requesterId': user.uid, 'requesterName': user.displayName, 'category': selectedCategory,
               'description': descController.text.trim(), 'urgency': selectedUrgency, 'status': 'open',
               'volunteerId': null, 'volunteerName': null, 'createdAt': FieldValue.serverTimestamp(),
-              if (pos != null) 'lat': pos.latitude,
-              if (pos != null) 'lng': pos.longitude,
+              // only the approximate spot is stored; the exact location never reaches Firestore
+              if (spot != null) 'approxLat': spot.lat,
+              if (spot != null) 'approxLng': spot.lng,
             });
             await _notifyNearby(ref.id);
             if (sheetContext.mounted) Navigator.pop(sheetContext);
@@ -4298,6 +4308,50 @@ double _distanceMiles(double lat1, double lon1, double lat2, double lon2) {
   return 2 * earthRadiusMi * math.asin(math.sqrt(a));
 }
 
+// Requests never store the poster's exact spot. Neighbors see a random point within
+// kAreaRadiusMi of it, drawn as a fixed-size circle on the map.
+const double kAreaRadiusMi = 0.25;
+
+({double lat, double lng}) _approxSpot(double lat, double lng) {
+  final rnd = math.Random.secure();
+  final angle = rnd.nextDouble() * 2 * math.pi;
+  final dist = math.sqrt(rnd.nextDouble()) * kAreaRadiusMi;
+  return (
+    lat: lat + dist * math.cos(angle) / 69.0,
+    lng: lng + dist * math.sin(angle) / (69.0 * math.cos(lat * math.pi / 180)),
+  );
+}
+
+class _Viewer {
+  final double? lat, lng;
+  final double radius;
+  const _Viewer(this.lat, this.lng, this.radius);
+}
+
+Future<_Viewer> _loadViewer(String uid) async {
+  double? lat, lng;
+  var radius = 1.0;
+  try {
+    final priv = await FirebaseFirestore.instance.collection('users').doc(uid).collection('private').doc('data').get();
+    final loc = priv.data()?['location'];
+    if (loc is Map) {
+      lat = (loc['lat'] as num?)?.toDouble();
+      lng = (loc['lng'] as num?)?.toDouble();
+    }
+    final r = (await FirebaseFirestore.instance.collection('users').doc(uid).get()).data()?['nearbyRadiusMi'];
+    if (r is num && r > 0) radius = r.toDouble();
+  } catch (_) {}
+  return _Viewer(lat, lng, radius);
+}
+
+// Requests without an approximate spot stay in the feed; only located ones can be out of range.
+bool _inViewerRange(Map<String, dynamic> data, _Viewer v) {
+  final lat = (data['approxLat'] as num?)?.toDouble();
+  final lng = (data['approxLng'] as num?)?.toDouble();
+  if (lat == null || lng == null || v.lat == null || v.lng == null) return true;
+  return _distanceMiles(v.lat!, v.lng!, lat, lng) <= v.radius;
+}
+
 class _NearbyMap extends StatefulWidget {
   const _NearbyMap({this.expanded = false, this.onExpand});
   final bool expanded;
@@ -4343,44 +4397,39 @@ class _NearbyMapState extends State<_NearbyMap> {
     _saveMyLocation(pos);
   }
 
-  Widget _pin(IconData icon, Color color) {
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-        width: 42, height: 42,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [color, Color.lerp(color, Colors.black, 0.25)!], begin: Alignment.topLeft, end: Alignment.bottomRight),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white.withValues(alpha: 0.9), width: 2),
-          boxShadow: [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 10, offset: const Offset(0, 4))],
-        ),
-        child: Icon(icon, color: Colors.white, size: 19),
-      ),
-      Transform.rotate(angle: math.pi / 4, child: Container(width: 12, height: 12, decoration: BoxDecoration(color: color))),
-    ]);
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('requests').where('status', isEqualTo: 'open').snapshots(),
       builder: (context, snap) {
+        final circles = <CircleMarker>[];
         final markers = <Marker>[];
         var nearbyCount = 0;
-        if (snap.hasData) {
-          for (int i = 0; i < snap.data!.docs.length; i++) {
-            final doc = snap.data!.docs[i];
+        // nothing is shown until our own location loads, so we can apply the radius
+        if (snap.hasData && _locationLoaded) {
+          for (final doc in snap.data!.docs) {
             final data = doc.data() as Map<String, dynamic>;
-            final lat = (data['lat'] as double?) ?? (_center.latitude + (i * 0.002));
-            final lng = (data['lng'] as double?) ?? (_center.longitude + (i * 0.002));
-            if (_locationLoaded && _distanceMiles(_center.latitude, _center.longitude, lat, lng) > _radiusMi) {
-              continue;
-            }
+            final lat = (data['approxLat'] as num?)?.toDouble();
+            final lng = (data['approxLng'] as num?)?.toDouble();
+            if (lat == null || lng == null) continue; // no approximate spot, so no map area
+            if (_distanceMiles(_center.latitude, _center.longitude, lat, lng) > _radiusMi) continue;
             nearbyCount++;
+            final color = _categoryColor(data['category'] ?? 'Other');
+            final icon = _categoryIcon(data['category'] ?? 'Other');
+            circles.add(CircleMarker(
+              point: LatLng(lat, lng),
+              radius: kAreaRadiusMi * 1609.34, useRadiusInMeter: true,
+              color: color.withValues(alpha: 0.18),
+              borderColor: color.withValues(alpha: 0.7), borderStrokeWidth: 2,
+            ));
             markers.add(Marker(
-              point: LatLng(lat, lng), width: 48, height: 62, alignment: Alignment.bottomCenter,
+              point: LatLng(lat, lng), width: 34, height: 34,
               child: GestureDetector(
                 onTap: () => _showDetail(context, data, doc.id),
-                child: _pin(_categoryIcon(data['category'] ?? 'Other'), _categoryColor(data['category'] ?? 'Other')),
+                child: Container(
+                  decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                  child: Icon(icon, color: Colors.white, size: 15),
+                ),
               ),
             ));
           }
@@ -4400,6 +4449,7 @@ class _NearbyMapState extends State<_NearbyMap> {
               ),
               children: [
                 TileLayer(urlTemplate: baseTiles, subdomains: kTileSubdomains, userAgentPackageName: 'com.kindred.app'),
+                CircleLayer(circles: circles),
                 MarkerLayer(markers: markers),
               ],
             ),
@@ -5210,7 +5260,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.9';
+  String _appVersion = 'bv1.0.10';
 
   @override
   void initState() {

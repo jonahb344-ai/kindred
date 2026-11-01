@@ -1300,8 +1300,9 @@ async function handleNotifyNearby(request, env) {
     if (!requesterId || auth.uid !== requesterId) {
       return json({ error: 'Not allowed to notify for this request' }, 403);
     }
-    const reqLat = reqDoc.lat && reqDoc.lat.doubleValue;
-    const reqLng = reqDoc.lng && reqDoc.lng.doubleValue;
+    // approximate spot only (the exact location is never stored on the request)
+    const reqLat = reqDoc.approxLat && reqDoc.approxLat.doubleValue;
+    const reqLng = reqDoc.approxLng && reqDoc.approxLng.doubleValue;
     if (reqLat === undefined || reqLng === undefined) {
       return json({ notified: 0, reason: 'Request has no location' });
     }
