@@ -25,7 +25,6 @@
 // (groceries, yard work, rides, etc) — all free, no catch.
 // ============================================================
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
@@ -2445,8 +2444,6 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  bool _dragging = false;
-  double _pill = 0;
   int _currentIndex = 0;
 
   @override
@@ -2495,31 +2492,13 @@ class _MainScreenState extends State<MainScreen> {
             decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(24), boxShadow: [kCardShadow]),
             child: SafeArea(
               top: false,
-              child: LayoutBuilder(builder: (context, box) => GestureDetector(
-                onHorizontalDragStart: (_) => setState(() { _dragging = true; _pill = _currentIndex.toDouble(); }),
-                onHorizontalDragUpdate: (d) => setState(() => _pill = (_pill + d.delta.dx / (box.maxWidth / 5)).clamp(0.0, 4.0)),
-                onHorizontalDragEnd: (_) => setState(() { _dragging = false; _currentIndex = _pill.round(); }),
-                child: Stack(children: [
-                Positioned.fill(
-                  child: AnimatedAlign(
-                    duration: _dragging ? Duration.zero : const Duration(milliseconds: 240),
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment(-1 + (_dragging ? _pill : _currentIndex.toDouble()) * 0.5, 0),
-                    child: const FractionallySizedBox(
-                      widthFactor: 0.2,
-                      heightFactor: 1,
-                      child: Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: _GlassPill()),
-                    ),
-                  ),
-                ),
-                Row(children: [
+              child: Row(children: [
                 _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home', selected: _currentIndex == 0, onTap: () => setState(() => _currentIndex = 0)),
                 _NavItem(icon: Icons.volunteer_activism_outlined, activeIcon: Icons.volunteer_activism_rounded, label: 'Help', selected: _currentIndex == 1, badge: helpUnread, onTap: () => setState(() => _currentIndex = 1)),
                 _NavItem(icon: Icons.leaderboard_outlined, activeIcon: Icons.leaderboard_rounded, label: 'Leaders', selected: _currentIndex == 2, onTap: () => setState(() => _currentIndex = 2)),
                 _NavItem(icon: Icons.chat_bubble_outline_rounded, activeIcon: Icons.chat_bubble_rounded, label: 'Messages', selected: _currentIndex == 3, badge: chatUnread, onTap: () => setState(() => _currentIndex = 3)),
                 _NavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'Profile', selected: _currentIndex == 4, onTap: () => setState(() => _currentIndex = 4)),
-                ]),
-              ]))),
+              ]),
             ),
           );
         },
@@ -5231,7 +5210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.8';
+  String _appVersion = 'bv1.0.9';
 
   @override
   void initState() {
@@ -6332,24 +6311,6 @@ class _SuccessState extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-// The little sliding glass bubble behind the selected tab. Real UIGlassEffect on
-// iOS, a soft tinted pill everywhere else.
-class _GlassPill extends StatelessWidget {
-  const _GlassPill();
-
-  @override
-  Widget build(BuildContext context) {
-    const radius = BorderRadius.all(Radius.circular(999));
-    final ios = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-    return ClipRRect(
-      borderRadius: radius,
-      child: ios
-          ? UiKitView(viewType: 'kindred/glass', hitTestBehavior: PlatformViewHitTestBehavior.transparent)
-          : Container(decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.12), borderRadius: radius)),
     );
   }
 }
