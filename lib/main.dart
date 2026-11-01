@@ -25,6 +25,7 @@
 // (groceries, yard work, rides, etc) — all free, no catch.
 // ============================================================
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
@@ -2464,6 +2465,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBody: true,
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 260),
         switchInCurve: Curves.easeOutCubic,
@@ -2486,10 +2488,9 @@ class _MainScreenState extends State<MainScreen> {
           final docs = snap.data?.docs ?? [];
           final chatUnread = docs.where((d) => (d.data() as Map)['chatId'] != null).length;
           final helpUnread = docs.length - chatUnread;
-          return Container(
+          return _GlassPanel(
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(24), boxShadow: [kCardShadow]),
             child: SafeArea(
               top: false,
               child: Row(children: [
@@ -5210,7 +5211,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.5';
+  String _appVersion = 'bv1.0.6';
 
   @override
   void initState() {
@@ -6310,6 +6311,36 @@ class _SuccessState extends StatelessWidget {
             ]),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// Real Liquid Glass on iOS (native UIGlassEffect, iOS 26+); everywhere else it is
+// the same rounded card we already shipped.
+class _GlassPanel extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets margin;
+  final EdgeInsets padding;
+  const _GlassPanel({required this.child, this.margin = EdgeInsets.zero, this.padding = EdgeInsets.zero});
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = BorderRadius.all(Radius.circular(24));
+    final ios = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    return Container(
+      margin: margin,
+      decoration: BoxDecoration(borderRadius: radius, boxShadow: [kCardShadow]),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(children: [
+          Positioned.fill(
+            child: ios
+                ? UiKitView(viewType: 'kindred/glass', hitTestBehavior: PlatformViewHitTestBehavior.transparent)
+                : Container(color: kCard),
+          ),
+          Padding(padding: padding, child: child),
+        ]),
       ),
     );
   }
