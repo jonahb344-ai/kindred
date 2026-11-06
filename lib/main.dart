@@ -41,7 +41,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 import 'package:geolocator/geolocator.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -269,9 +269,29 @@ const List<String> kTileSubdomains = ['a', 'b', 'c', 'd'];
 
 // theme colors — dark mode is the default, light mode added later
 bool _appIsDark = true;
-// Halloween mode — a seasonal skin layered on top of the dark theme. When this
-// is on the palette below switches to pumpkin orange + violet on purple-black.
-bool _halloween = false;
+
+// Seasonal modes. Exactly one can be active at a time — the Settings dropdown
+// writes this and every palette getter below reads it. Both modes pin the app
+// to dark so their palettes render the way they were designed.
+enum _SeasonalMode { none, christmas, thanksgiving }
+
+_SeasonalMode _seasonalMode = _SeasonalMode.none;
+bool get _seasonalActive => _seasonalMode != _SeasonalMode.none;
+
+String _seasonalLabel(_SeasonalMode mode) {
+  switch (mode) {
+    case _SeasonalMode.christmas: return 'Christmas';
+    case _SeasonalMode.thanksgiving: return 'Thanksgiving';
+    case _SeasonalMode.none: return 'Off';
+  }
+}
+
+_SeasonalMode _seasonalFromName(String? name) {
+  for (final m in _SeasonalMode.values) {
+    if (m.name == name) return m;
+  }
+  return _SeasonalMode.none;
+}
 
 // ─── 2026-10-11 DESIGN REFRESH ───────────────────────────────────────────────
 // Blend of the three concepts the user picked: (1) crisp white / stone canvas
@@ -279,20 +299,57 @@ bool _halloween = false;
 // stream, (3) warm cream chat panels with organic sage accents. Sage replaces the
 // old teal everywhere. Contrast re-checked: charcoal on stone ≈ 15:1, white on the
 // #527A75 button sage ≈ 4.8:1, #3F635E ≈ 6.7:1, sage icons clear 3:1.
-// HALLOWEEN MODE: pumpkin orange (kAccent) + violet on a purple-black canvas.
-// It always renders as a dark theme, so every getter below just checks
-// _halloween first, then falls through to the normal dark/light values.
-Color get kBackground => _halloween ? const Color(0xFF130B1C) : (_appIsDark ? const Color(0xFF0F1418) : const Color(0xFFF4F6F6));
-Color get kCard => _halloween ? const Color(0xFF231536) : (_appIsDark ? const Color(0xFF1B1F1E) : const Color(0xFFFFFFFF));
-Color get kCardLight => _halloween ? const Color(0xFF2E1D45) : (_appIsDark ? const Color(0xFF252B29) : const Color(0xFFEDF1F0));
+// SEASONAL MODES: Christmas is deep evergreen + red, Thanksgiving is dark
+// roast-brown + amber. Both always render as a dark theme, so every getter
+// below checks the seasonal mode first, then falls through to the normal
+// dark/light values.
+Color get kBackground => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFF0B1410),
+  _SeasonalMode.thanksgiving => const Color(0xFF170F0A),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF0F1418) : const Color(0xFFF4F6F6),
+};
+Color get kCard => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFF13241C),
+  _SeasonalMode.thanksgiving => const Color(0xFF241812),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF1B1F1E) : const Color(0xFFFFFFFF),
+};
+Color get kCardLight => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFF1B3128),
+  _SeasonalMode.thanksgiving => const Color(0xFF2F1F16),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF252B29) : const Color(0xFFEDF1F0),
+};
 // warm cream surface for chat panels (concept 3)
-Color get kChatSurface => _halloween ? const Color(0xFF1B1024) : (_appIsDark ? const Color(0xFF191E1D) : const Color(0xFFFBF6EF));
-Color get kAccent => _halloween ? const Color(0xFFFF8A1F) : (_appIsDark ? const Color(0xFF7FB0A8) : const Color(0xFF63918B));
-Color get kAccentDark => _halloween ? const Color(0xFFE0700F) : (_appIsDark ? const Color(0xFF63918B) : const Color(0xFF527A75));
+Color get kChatSurface => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFF0E1A14),
+  _SeasonalMode.thanksgiving => const Color(0xFF1B120C),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF191E1D) : const Color(0xFFFBF6EF),
+};
+Color get kAccent => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFFF87171),
+  _SeasonalMode.thanksgiving => const Color(0xFFFBBF24),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF7FB0A8) : const Color(0xFF63918B),
+};
+Color get kAccentDark => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFFEF4444),
+  _SeasonalMode.thanksgiving => const Color(0xFFF59E0B),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF63918B) : const Color(0xFF527A75),
+};
 Color get kBadge => _appIsDark ? kAccent : const Color(0xFF4A625F);
-Color get kTextPrimary => _halloween ? const Color(0xFFF6EFE6) : (_appIsDark ? const Color(0xFFECEFEE) : const Color(0xFF1C1C1E));
-Color get kTextSecondary => _halloween ? const Color(0xFFBCA8D1) : (_appIsDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280));
-Color get kDivider => _halloween ? const Color(0xFF3B2959) : (_appIsDark ? const Color(0xFF2C3332) : const Color(0xFFE4E7E7));
+Color get kTextPrimary => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFFF2F7F3),
+  _SeasonalMode.thanksgiving => const Color(0xFFFBF3E8),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFFECEFEE) : const Color(0xFF1C1C1E),
+};
+Color get kTextSecondary => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFFA9C2B4),
+  _SeasonalMode.thanksgiving => const Color(0xFFC9AE94),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+};
+Color get kDivider => switch (_seasonalMode) {
+  _SeasonalMode.christmas => const Color(0xFF254236),
+  _SeasonalMode.thanksgiving => const Color(0xFF3A281C),
+  _SeasonalMode.none => _appIsDark ? const Color(0xFF2C3332) : const Color(0xFFE4E7E7),
+};
 
 // heavy rounding — the brief asks for 16–24px on every card
 const double kRadius = 22;
@@ -301,12 +358,14 @@ LinearGradient get kAccentGradient => LinearGradient(
   // deep sage pair so WHITE labels on primary buttons always clear 4.5:1.
   // Dark mode uses a duskier, lower-chroma pair so buttons read as calm sage
   // instead of glowing neon against the near-black canvas.
-  // Halloween swaps in a deep pumpkin pair (white text still clears 4.5:1).
-  colors: _halloween
-      ? const [Color(0xFFC2410C), Color(0xFF9A3412)]
-      : _appIsDark
-          ? const [Color(0xFF34524D), Color(0xFF40615B)]
-          : const [Color(0xFF3F635E), Color(0xFF527A75)],
+  // Seasonal modes swap in deep holiday pairs (white text still clears 4.5:1).
+  colors: switch (_seasonalMode) {
+    _SeasonalMode.christmas => const [Color(0xFFB91C1C), Color(0xFF7F1D1D)],
+    _SeasonalMode.thanksgiving => const [Color(0xFFB45309), Color(0xFF92400E)],
+    _SeasonalMode.none => _appIsDark
+        ? const [Color(0xFF34524D), Color(0xFF40615B)]
+        : const [Color(0xFF3F635E), Color(0xFF527A75)],
+  },
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );
@@ -447,9 +506,9 @@ class _KindredAppState extends State<KindredApp> {
             final parsed = ThemeMode.values.where((m) => m.name == mode);
             if (parsed.isNotEmpty) _themeMode = parsed.first;
           }
-          // seasonal modes (Halloween …) persist here too so a cold start
-          // applies the skin + forced dark WITHOUT needing to open Settings
-          if (data?['halloween'] == true) _halloween = true;
+          // seasonal mode persists here too so a cold start applies the skin
+          // + forced dark WITHOUT needing to open Settings
+          _seasonalMode = _seasonalFromName(data?['seasonalMode'] as String?);
           // feedback prefs live on the same doc; apply before any tap happens
           KindredFeedback.hapticsEnabled = data?['hapticsEnabled'] != false;
           KindredFeedback.soundsEnabled = data?['soundsEnabled'] != false;
@@ -469,10 +528,10 @@ class _KindredAppState extends State<KindredApp> {
     }
   }
 
-  // Seasonal modes (Halloween, …) always force the dark theme regardless of the
-  // user's saved pref. Call this after toggling/loading any seasonal flag so
-  // MaterialApp + _appIsDark recompute; the pref itself is untouched, so the
-  // theme snaps back as soon as the seasonal mode is turned off.
+  // Seasonal modes always force the dark theme regardless of the user's saved
+  // pref. Call this after changing the dropdown so MaterialApp + _appIsDark
+  // recompute; the pref itself is untouched, so the theme snaps back as soon as
+  // the seasonal mode is turned off.
   void applySeasonalMode() {
     if (mounted) setState(() {});
   }
@@ -481,20 +540,27 @@ class _KindredAppState extends State<KindredApp> {
   Widget build(BuildContext context) {
     final dispatcher = WidgetsBinding.instance.platformDispatcher;
     final systemDark = dispatcher.platformBrightness == Brightness.dark;
-    _appIsDark = _halloween || _themeMode == ThemeMode.dark || (_themeMode == ThemeMode.system && systemDark);
+    _appIsDark = _seasonalActive || _themeMode == ThemeMode.dark || (_themeMode == ThemeMode.system && systemDark);
     return MaterialApp(
       title: 'Kindred',
       debugShowCheckedModeBanner: false,
       theme: _lightTheme(),
       darkTheme: _darkTheme(),
-      themeMode: _halloween ? ThemeMode.dark : _themeMode,
+      themeMode: _seasonalActive ? ThemeMode.dark : _themeMode,
+      // The seasonal particles sit ABOVE the navigator (so they keep drifting
+      // across pushed routes like chat/settings) but ignore pointers so they
+      // never steal a tap. The overlay hides itself on the signed-out screens.
+      builder: (context, child) => _SeasonalOverlay(
+        mode: _seasonalMode,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: kIsWeb
           // no cold-start logo splash on the web build — it's only wanted on the
           // real (Android/iOS) app
-          ? KeyedSubtree(key: ValueKey('w${_themeMode.index}$_halloween'), child: const AuthGate())
+          ? KeyedSubtree(key: ValueKey('w${_themeMode.index}${_seasonalMode.name}'), child: const AuthGate())
           : _StartupSplash(
               child: KeyedSubtree(
-                key: ValueKey('n${_themeMode.index}$_halloween'),
+                key: ValueKey('n${_themeMode.index}${_seasonalMode.name}'),
                 child: const AuthGate(),
               ),
             ),
@@ -5260,7 +5326,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.10';
+  String _appVersion = 'bv1.0.11';
 
   @override
   void initState() {
@@ -5300,11 +5366,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           appState?.setThemeMode(parsed.first);
         }
       }
-      if (data.containsKey('halloween')) {
-        _halloween = data['halloween'] == true;
-      }
+      _seasonalMode = _seasonalFromName(data['seasonalMode'] as String?);
     });
-      // the flag lives in a global the color tokens read — make MaterialApp
+      // the mode lives in a global the color tokens read — make MaterialApp
       // rebuild so a saved seasonal mode forces dark right after app start
       appState?.applySeasonalMode();
       // ensure the whole tree rebuilds with the correct palette
@@ -5375,7 +5439,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'soundsEnabled': _soundsEnabled,
       'appIcon': _appIcon,
       'nearbyRadiusMi': _nearbyRadiusMi,
-      'halloween': _halloween,
+      'seasonalMode': _seasonalMode.name,
     });
   }
 
@@ -5436,17 +5500,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           _SettingsSection(title: 'Appearance', children: [
-            // Halloween (and any future seasonal mode) pins the app to dark, so the
-            // theme picker is shown greyed-out and inert while it is on. The
-            // user's saved preference is untouched and comes back when it is off.
+            // A seasonal mode pins the app to dark, so the theme picker is shown
+            // greyed-out and inert while one is active. The user's saved
+            // preference is untouched and comes back when it is turned off.
             Opacity(
-              opacity: _halloween ? 0.5 : 1.0,
+              opacity: _seasonalActive ? 0.5 : 1.0,
               child: _SettingsTile(
                 icon: Icons.brightness_auto_rounded,
                 title: 'Theme',
-                titleColor: _halloween ? kTextSecondary : null,
-                trailing: Text(_halloween ? 'Dark' : _themeLabel(_themeMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
-                onTap: _halloween ? null : () async {
+                titleColor: _seasonalActive ? kTextSecondary : null,
+                trailing: Text(_seasonalActive ? 'Dark' : _themeLabel(_themeMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
+                onTap: _seasonalActive ? null : () async {
                   final v = await _showActionSheet<ThemeMode>(context, title: 'Theme', actions: [
                     _SheetAction(icon: Icons.brightness_auto_rounded, label: 'System', value: ThemeMode.system, selected: _themeMode == ThemeMode.system),
                     _SheetAction(icon: Icons.light_mode_rounded, label: 'Light', value: ThemeMode.light, selected: _themeMode == ThemeMode.light),
@@ -5460,18 +5524,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _SettingsTile(
-              icon: Icons.bug_report_rounded,
-              title: 'Halloween Mode',
-              trailing: CupertinoSwitch(
-                value: _halloween,
-                onChanged: (v) {
-                  setState(() => _halloween = v);
-                  KindredApp.of(context)?.applySeasonalMode();
-                  _saveSettings();
-                  if (mounted) setState(() {});
-                },
-                activeTrackColor: kAccent,
-              ),
+              icon: Icons.auto_awesome_rounded,
+              title: 'Seasonal Mode',
+              onTap: () async {
+                final v = await _showActionSheet<_SeasonalMode>(context, title: 'Seasonal Mode', actions: [
+                  _SheetAction(icon: Icons.block_rounded, label: 'Off', value: _SeasonalMode.none, selected: _seasonalMode == _SeasonalMode.none),
+                  _SheetAction(icon: Icons.eco_rounded, label: 'Thanksgiving', value: _SeasonalMode.thanksgiving, selected: _seasonalMode == _SeasonalMode.thanksgiving),
+                  _SheetAction(icon: Icons.ac_unit_rounded, label: 'Christmas', value: _SeasonalMode.christmas, selected: _seasonalMode == _SeasonalMode.christmas),
+                ]);
+                if (v == null || !context.mounted) return;
+                setState(() => _seasonalMode = v);
+                KindredApp.of(context)?.applySeasonalMode();
+                _saveSettings();
+              },
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(_seasonalLabel(_seasonalMode), style: TextStyle(color: kTextSecondary, fontSize: 14)),
+                const SizedBox(width: 6),
+                Icon(Icons.chevron_right_rounded, color: kTextSecondary, size: 20),
+              ]),
             ),
             _SettingsTile(
               icon: Icons.apps_rounded,
@@ -6571,4 +6641,355 @@ class _HelpCard extends StatelessWidget {
       ]),
     ));
   }
+}
+// ─── SEASONAL OVERLAY ────────────────────────────────────────────────────────
+// Painted above the Navigator so the particles keep drifting across pushed
+// routes (chat, settings, …). It only renders for signed-in users, is skipped
+// when "reduce motion" is on, and never intercepts taps.
+
+class _SeasonalOverlay extends StatefulWidget {
+  final _SeasonalMode mode;
+  final Widget child;
+  const _SeasonalOverlay({required this.mode, required this.child});
+
+  @override
+  State<_SeasonalOverlay> createState() => _SeasonalOverlayState();
+}
+
+class _SeasonalOverlayState extends State<_SeasonalOverlay> {
+  late final Stream<User?> _auth = FirebaseAuth.instance.authStateChanges();
+
+  @override
+  Widget build(BuildContext context) {
+    // Always keep the child at the same slot in the tree: adding/removing the
+    // Stack around the Navigator would reparent it and reset the open route.
+    final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    return StreamBuilder<User?>(
+      stream: _auth,
+      builder: (context, snap) {
+        final active = widget.mode != _SeasonalMode.none && snap.hasData && !reduceMotion;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            if (active)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: _SeasonalParticles(key: ValueKey(widget.mode), mode: widget.mode),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SeasonalParticles extends StatefulWidget {
+  final _SeasonalMode mode;
+  const _SeasonalParticles({super.key, required this.mode});
+
+  @override
+  State<_SeasonalParticles> createState() => _SeasonalParticlesState();
+}
+
+class _SeasonalParticlesState extends State<_SeasonalParticles>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 10),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _SeasonalPainter(mode: widget.mode, animation: _c),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _SnowFlake {
+  final double x, phase, fall, radius, sway, alpha;
+  const _SnowFlake(this.x, this.phase, this.fall, this.radius, this.sway, this.alpha);
+}
+
+class _Gift {
+  final double x, phase, fall, size, spin;
+  final Color color;
+  const _Gift(this.x, this.phase, this.fall, this.size, this.spin, this.color);
+}
+
+class _Leaf {
+  final double x, phase, fall, size, sway, spin;
+  final Color color;
+  const _Leaf(this.x, this.phase, this.fall, this.size, this.sway, this.spin, this.color);
+}
+
+class _Turkey {
+  final double phase, speed, yFrac, size;
+  const _Turkey(this.phase, this.speed, this.yFrac, this.size);
+}
+
+class _SeasonalPainter extends CustomPainter {
+  final _SeasonalMode mode;
+  final Animation<double> animation;
+
+  late final List<_SnowFlake> _flakes;
+  late final List<_Gift> _gifts;
+  late final List<_Leaf> _leaves;
+  late final List<_Turkey> _turkeys;
+
+  static const _lightColors = [
+    Color(0xFFF87171),
+    Color(0xFFFBBF24),
+    Color(0xFF34D399),
+    Color(0xFF60A5FA),
+    Color(0xFFF472B6),
+  ];
+  static const _giftColors = [
+    Color(0xFFDC2626),
+    Color(0xFFD97706),
+    Color(0xFF15803D),
+    Color(0xFFB91C1C),
+  ];
+  static const _leafColors = [
+    Color(0xFFC2410C),
+    Color(0xFFD97706),
+    Color(0xFFB45309),
+    Color(0xFF92400E),
+    Color(0xFFCA8A04),
+    Color(0xFFA16207),
+  ];
+
+  _SeasonalPainter({required this.mode, required this.animation})
+      : super(repaint: animation) {
+    final rand = math.Random(19);
+    _flakes = List.generate(58, (_) => _SnowFlake(
+      rand.nextDouble(),
+      rand.nextDouble(),
+      1.0 + rand.nextDouble() * 1.4,
+      1.0 + rand.nextDouble() * 2.4,
+      rand.nextDouble() * math.pi * 2,
+      0.35 + rand.nextDouble() * 0.55,
+    ));
+    _gifts = List.generate(4, (i) => _Gift(
+      0.1 + rand.nextDouble() * 0.8,
+      rand.nextDouble(),
+      0.75 + rand.nextDouble() * 0.5,
+      11 + rand.nextDouble() * 7,
+      rand.nextDouble() * math.pi * 2,
+      _giftColors[i % _giftColors.length],
+    ));
+    _leaves = List.generate(30, (i) => _Leaf(
+      rand.nextDouble(),
+      rand.nextDouble(),
+      0.9 + rand.nextDouble() * 1.1,
+      4.5 + rand.nextDouble() * 4.0,
+      8 + rand.nextDouble() * 16,
+      rand.nextDouble() * math.pi * 2,
+      _leafColors[i % _leafColors.length],
+    ));
+    _turkeys = const [
+      _Turkey(0.0, 0.9, 0.72, 17),
+      _Turkey(0.45, 1.15, 0.80, 14),
+      _Turkey(0.78, 0.75, 0.88, 12),
+    ];
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final t = animation.value;
+    if (mode == _SeasonalMode.christmas) {
+      _paintSnow(canvas, size, t);
+      _paintLights(canvas, size, t);
+      _paintGifts(canvas, size, t);
+    } else if (mode == _SeasonalMode.thanksgiving) {
+      _paintLeaves(canvas, size, t);
+      _paintTurkeys(canvas, size, t);
+    }
+  }
+
+  // ── Christmas ──────────────────────────────────────────────────────────────
+
+  void _paintSnow(Canvas canvas, Size size, double t) {
+    final paint = Paint();
+    for (final f in _flakes) {
+      final y = ((f.phase + t * f.fall) % 1.0) * (size.height + 24) - 12;
+      final x = f.x * size.width + math.sin(t * math.pi * 4 + f.sway) * 7;
+      paint.color = Colors.white.withValues(alpha: f.alpha);
+      canvas.drawCircle(Offset(x, y), f.radius, paint);
+    }
+  }
+
+  void _paintLights(Canvas canvas, Size size, double t) {
+    const count = 14;
+    final wire = Path();
+    for (var i = 0; i <= count; i++) {
+      final fx = i / count;
+      final x = fx * size.width;
+      final y = 8 + math.sin(fx * math.pi) * 5;
+      if (i == 0) {
+        wire.moveTo(x, y);
+      } else {
+        wire.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(
+      wire,
+      Paint()
+        ..color = const Color(0xFF2B4A39)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.1,
+    );
+    final paint = Paint();
+    for (var i = 0; i < count; i++) {
+      final fx = (i + 0.5) / count;
+      final x = fx * size.width;
+      final y = 8 + math.sin(fx * math.pi) * 5 + 4;
+      final twinkle = 0.5 + 0.5 * math.sin(t * math.pi * 6 + i * 1.7);
+      final color = _lightColors[i % _lightColors.length];
+      paint.color = color.withValues(alpha: 0.18 * twinkle + 0.08);
+      canvas.drawCircle(Offset(x, y), 6, paint);
+      paint.color = color.withValues(alpha: 0.55 + 0.45 * twinkle);
+      canvas.drawCircle(Offset(x, y), 3.1, paint);
+    }
+  }
+
+  void _paintGifts(Canvas canvas, Size size, double t) {
+    for (final g in _gifts) {
+      final y = ((g.phase + t * g.fall) % 1.0) * (size.height + 60) - 30;
+      final x = g.x * size.width + math.sin(t * math.pi * 2 + g.spin) * 10;
+      final s = g.size;
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate(math.sin(t * math.pi * 2 + g.spin) * 0.28);
+      final body = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset.zero, width: s, height: s * 0.9),
+        const Radius.circular(2.5),
+      );
+      canvas.drawRRect(body, Paint()..color = g.color.withValues(alpha: 0.9));
+      final ribbon = Paint()..color = const Color(0xFFFBBF24).withValues(alpha: 0.95);
+      canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: s * 0.17, height: s * 0.9), ribbon);
+      canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: s, height: s * 0.17), ribbon);
+      canvas.drawCircle(Offset(0, -s * 0.45), s * 0.13, ribbon);
+      canvas.restore();
+    }
+  }
+
+  // ── Thanksgiving ───────────────────────────────────────────────────────────
+
+  void _paintLeaves(Canvas canvas, Size size, double t) {
+    final paint = Paint();
+    for (final l in _leaves) {
+      final y = ((l.phase + t * l.fall) % 1.0) * (size.height + 30) - 15;
+      final x = l.x * size.width + math.sin(t * math.pi * 3 + l.spin) * l.sway;
+      final angle = t * math.pi * 2 + l.spin;
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate(angle);
+      final s = l.size;
+      final path = Path()
+        ..moveTo(0, -s)
+        ..quadraticBezierTo(s * 0.95, -s * 0.15, 0, s)
+        ..quadraticBezierTo(-s * 0.95, -s * 0.15, 0, -s);
+      paint.color = l.color.withValues(alpha: 0.85);
+      canvas.drawPath(path, paint);
+      paint.color = l.color.withValues(alpha: 0.35);
+      paint.strokeWidth = 1;
+      paint.style = PaintingStyle.stroke;
+      canvas.drawLine(Offset(0, -s), Offset(0, s), paint);
+      paint.style = PaintingStyle.fill;
+      canvas.restore();
+    }
+  }
+
+  void _paintTurkeys(Canvas canvas, Size size, double t) {
+    for (final turkey in _turkeys) {
+      final travel = ((turkey.phase + t * turkey.speed) % 1.0);
+      final x = (-0.12 + travel * 1.24) * size.width;
+      final baseY = size.height * turkey.yFrac;
+      final bob = math.sin(t * math.pi * 16 + turkey.phase * 9) * 1.6;
+      final scale = turkey.size * (size.width / 390).clamp(0.8, 1.5);
+      _drawTurkey(canvas, Offset(x, baseY + bob), scale);
+    }
+  }
+
+  void _drawTurkey(Canvas canvas, Offset center, double s) {
+    // soft shadow on the "ground"
+    canvas.drawOval(
+      Rect.fromCenter(center: center + Offset(0, s * 0.52), width: s * 1.25, height: s * 0.22),
+      Paint()..color = Colors.black.withValues(alpha: 0.16),
+    );
+
+    // tail feathers fanning out behind the body
+    final featherColors = [
+      const Color(0xFF8C4A1E),
+      const Color(0xFFB45309),
+      const Color(0xFF92400E),
+      const Color(0xFFC2410C),
+      const Color(0xFF7C2D12),
+    ];
+    final featherPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.16
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < featherColors.length; i++) {
+      final a = math.pi * (1.05 + i * 0.16);
+      final end = center + Offset(math.cos(a) * s * 0.95, math.sin(a) * s * 0.95);
+      featherPaint.color = featherColors[i].withValues(alpha: 0.9);
+      canvas.drawLine(center + Offset(-s * 0.1, -s * 0.05), end, featherPaint);
+    }
+
+    // body + wing
+    canvas.drawOval(
+      Rect.fromCenter(center: center, width: s * 1.05, height: s * 0.9),
+      Paint()..color = const Color(0xFF7C4A24),
+    );
+    canvas.drawOval(
+      Rect.fromCenter(center: center + Offset(-s * 0.12, s * 0.04), width: s * 0.55, height: s * 0.42),
+      Paint()..color = const Color(0xFF93613A).withValues(alpha: 0.9),
+    );
+
+    // head, beak, wattle, eye
+    final head = center + Offset(s * 0.46, -s * 0.36);
+    canvas.drawCircle(head, s * 0.2, Paint()..color = const Color(0xFF8A5730));
+    final beak = Path()
+      ..moveTo(head.dx + s * 0.14, head.dy - s * 0.02)
+      ..lineTo(head.dx + s * 0.32, head.dy + s * 0.03)
+      ..lineTo(head.dx + s * 0.14, head.dy + s * 0.09)
+      ..close();
+    canvas.drawPath(beak, Paint()..color = const Color(0xFFF59E0B));
+    canvas.drawCircle(
+      head + Offset(s * 0.06, s * 0.16),
+      s * 0.07,
+      Paint()..color = const Color(0xFFDC2626),
+    );
+    canvas.drawCircle(
+      head + Offset(s * 0.04, -s * 0.05),
+      s * 0.035,
+      Paint()..color = const Color(0xFF1C1410),
+    );
+
+    // legs
+    final legPaint = Paint()
+      ..color = const Color(0xFFF59E0B)
+      ..strokeWidth = s * 0.07
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(center + Offset(-s * 0.18, s * 0.4), center + Offset(-s * 0.22, s * 0.58), legPaint);
+    canvas.drawLine(center + Offset(s * 0.16, s * 0.4), center + Offset(s * 0.2, s * 0.58), legPaint);
+  }
+
+  @override
+  bool shouldRepaint(_SeasonalPainter old) =>
+      old.mode != mode || old.animation != animation;
 }
