@@ -54,6 +54,11 @@ import 'dart:math' as math;
 final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
 int _localNotifId = 0;
 
+// Firestore stores "no photo" as '' (and legacy docs may hold null). Every
+// "should I show the fallback icon?" check must treat both as missing, or an
+// empty string paints a broken-image avatar with no person icon.
+bool _hasPhoto(Object? url) => url != null && url.toString().isNotEmpty;
+
 ImageProvider? _avatarImage(Object? url) {
   if (url == null) return null;
   final s = url.toString();
@@ -136,6 +141,25 @@ Future<void> _saveFcmToken(String uid) async {
     }
     await Future.delayed(const Duration(seconds: 4));
   }
+}
+
+// Shared sign-out path. Clearing the token BEFORE signOut matters: once the
+// auth user is gone Firestore rejects the write, leaving a dead token on the
+// device doc so the next account on this phone gets the previous owner's push.
+Future<void> _signOutAndCleanup() async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid != null) {
+    try {
+      await FirebaseFirestore.instance
+          .collection('users').doc(uid).collection('private').doc('data')
+          .set({'fcmToken': FieldValue.delete()}, SetOptions(merge: true));
+    } catch (_) {}
+  }
+  try { await FirebaseMessaging.instance.deleteToken(); } catch (_) {}
+  if (!kIsWeb) {
+    try { await GoogleSignIn().signOut(); } catch (_) {}
+  }
+  await FirebaseAuth.instance.signOut();
 }
 
 // Hidden diagnostic (long-press the app version in Settings). Runs each push step on
@@ -236,9 +260,13 @@ void main() async {
   }
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-    await _initNotifications();
   }
   runApp(const KindredApp());
+  // Never block first paint on permission prompts / plugin channels. The gate
+  // shows the login screen immediately and notifications warm up behind it.
+  if (!kIsWeb) {
+    unawaited(_initNotifications());
+  }
 }
 
 const String reportEmail = 'jonahb344+kindred@gmail.com';
@@ -269,6 +297,10 @@ const List<String> kTileSubdomains = ['a', 'b', 'c', 'd'];
 
 // theme colors — dark mode is the default, light mode added later
 bool _appIsDark = true;
+
+// Survives a theme/seasonal rebuild of MainScreen (which remounts because the
+// palette getters aren't reactive) so switching theme doesn't dump you on Home.
+int _mainTabIndex = 0;
 
 // Seasonal modes. Exactly one can be active at a time — the Settings dropdown
 // writes this and every palette getter below reads it. Both modes pin the app
@@ -478,43 +510,71 @@ class KindredApp extends StatefulWidget {
   State<KindredApp> createState() => _KindredAppState();
 }
 
-class _KindredAppState extends State<KindredApp> {
+class _KindredAppState extends State<KindredApp> with WidgetsBindingObserver {
   ThemeMode _themeMode = ThemeMode.system;
+  StreamSubscription<User?>? _authSub;
 
   @override
   void initState() {
     super.initState();
-    _loadThemeFromUser();
+    WidgetsBinding.instance.addObserver(this);
+    // Re-read preferences for EVERY account that signs in. The old one-shot
+    // "first non-null user" read kept account A's theme/seasonal skin when
+    // account B signed in on the same device.
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((u) {
+      if (u == null) {
+        _resetPrefs();
+      } else {
+        _loadPrefsFor(u);
+      }
+    });
   }
 
-  // pull saved theme preference from Firestore on startup
-  Future<void> _loadThemeFromUser() async {
-    try {
-      await FirebaseAuth.instance.authStateChanges().firstWhere((u) => u != null);
-    } catch (_) {
-      return;
-    }
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // ThemeMode.system follows the OS, but the palette globals are plain getters,
+  // so nothing repaints on a system light/dark switch without this nudge.
+  @override
+  void didChangePlatformBrightness() {
+    if (mounted) setState(() {});
+  }
+
+  void _resetPrefs() {
+    if (!mounted) return;
+    setState(() {
+      _themeMode = ThemeMode.system;
+      _seasonalMode = _SeasonalMode.none;
+      _mainTabIndex = 0;
+    });
+  }
+
+  Future<void> _loadPrefsFor(User user) async {
+    final uid = user.uid;
     try {
       final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      // Bail if the account changed while the read was in flight.
+      if (!mounted || FirebaseAuth.instance.currentUser?.uid != uid) return;
       final data = doc.data();
       final mode = data?['themeMode'] as String?;
-      if (mounted) {
-        setState(() {
-          if (mode != null) {
-            final parsed = ThemeMode.values.where((m) => m.name == mode);
-            if (parsed.isNotEmpty) _themeMode = parsed.first;
-          }
-          // seasonal mode persists here too so a cold start applies the skin
-          // + forced dark WITHOUT needing to open Settings
-          _seasonalMode = _seasonalFromName(data?['seasonalMode'] as String?);
-          // feedback prefs live on the same doc; apply before any tap happens
-          KindredFeedback.hapticsEnabled = data?['hapticsEnabled'] != false;
-          KindredFeedback.soundsEnabled = data?['soundsEnabled'] != false;
-          KindredFeedback.warmUp();
-        });
-      }
+      setState(() {
+        _themeMode = ThemeMode.system;
+        if (mode != null) {
+          final parsed = ThemeMode.values.where((m) => m.name == mode);
+          if (parsed.isNotEmpty) _themeMode = parsed.first;
+        }
+        // seasonal mode persists here too so a cold start applies the skin
+        // + forced dark WITHOUT needing to open Settings
+        _seasonalMode = _seasonalFromName(data?['seasonalMode'] as String?);
+        // feedback prefs live on the same doc; apply before any tap happens
+        KindredFeedback.hapticsEnabled = data?['hapticsEnabled'] != false;
+        KindredFeedback.soundsEnabled = data?['soundsEnabled'] != false;
+        KindredFeedback.warmUp();
+      });
       final savedIcon = data?['appIcon'] as String?;
       if (savedIcon != null && savedIcon != 'navy') await _applyAppIcon(savedIcon);
     } catch (_) {}
@@ -1070,6 +1130,8 @@ Future<String?> _showNoteDialog(
   required String message,
   required String hint,
   required String actionLabel,
+  bool obscure = false,
+  int maxLines = 3,
 }) {
   final controller = TextEditingController();
   return showDialog<String>(
@@ -1083,8 +1145,12 @@ Future<String?> _showNoteDialog(
         TextField(
           controller: controller,
           autofocus: true,
-          maxLines: 3,
-          textCapitalization: TextCapitalization.sentences,
+          maxLines: maxLines,
+          obscureText: obscure,
+          autocorrect: !obscure,
+          enableSuggestions: !obscure,
+          keyboardType: obscure ? TextInputType.visiblePassword : null,
+          textCapitalization: obscure ? TextCapitalization.none : TextCapitalization.sentences,
           style: TextStyle(color: kTextPrimary),
           decoration: InputDecoration(
             hintText: hint,
@@ -1335,39 +1401,83 @@ class _SplashScreen extends StatelessWidget {
 // ─── AUTH GATE ────────────────────────────────────────────────────────────────
 // decides what to show based on auth state — login, verify email, onboarding, or main app
 
-class AuthGate extends StatelessWidget {
+// `User.reload()` (used after email verification) does NOT emit on
+// authStateChanges, so the gate would sit on the verify screen forever. Bumping
+// this notifier tells the gate to re-read the current user.
+final ValueNotifier<int> _authRefresh = ValueNotifier<int>(0);
+
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  StreamSubscription<User?>? _authSub;
+  StreamSubscription<DocumentSnapshot>? _docSub;
+  User? _user;
+  bool _authReady = false;
+  Map<String, dynamic>? _data;
+  bool _docReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSub = FirebaseAuth.instance.authStateChanges().listen(_onAuth);
+    _authRefresh.addListener(_onRefresh);
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    _docSub?.cancel();
+    _authRefresh.removeListener(_onRefresh);
+    super.dispose();
+  }
+
+  void _onRefresh() {
+    if (!mounted) return;
+    setState(() => _user = FirebaseAuth.instance.currentUser);
+  }
+
+  void _onAuth(User? user) {
+    _docSub?.cancel();
+    setState(() {
+      _user = user;
+      _authReady = true;
+      _data = null;
+      _docReady = false;
+    });
+    if (user == null) return;
+    // Live doc instead of a one-shot read: onboarding/tutorial flip their flags
+    // here and the gate moves on by itself, with no navigation races.
+    _docSub = FirebaseFirestore.instance
+        .collection('users').doc(user.uid).snapshots()
+        .listen((snap) {
+      if (!mounted || _user?.uid != user.uid) return;
+      setState(() { _data = snap.data(); _docReady = true; });
+    }, onError: (_) {
+      if (mounted) setState(() => _docReady = true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-        if (snapshot.hasData) {
-          final user = snapshot.data!;
-          final isEmailUser = user.providerData.any((p) => p.providerId == 'password');
-          if (isEmailUser && !user.emailVerified) return const VerifyEmailScreen();
-          return FutureBuilder<DocumentSnapshot>(
-            future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
-            builder: (context, userSnap) {
-              if (userSnap.connectionState == ConnectionState.waiting) {
-                return const Scaffold(body: Center(child: CircularProgressIndicator()));
-              }
-              final data = userSnap.data?.data() as Map<String, dynamic>?;
-              final setupDone = data?['setupDone'] ?? false;
-              final tutorialDone = data?['tutorialDone'] ?? false;
-              if (!setupDone) return const OnboardingScreen();
-              if (!tutorialDone) return const TutorialScreen();
-              return const MainScreen();
-            },
-          );
-        }
-        return const LoginScreen();
-      },
-    );
+    if (!_authReady) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final user = _user;
+    if (user == null) return const LoginScreen();
+    final isEmailUser = user.providerData.any((p) => p.providerId == 'password');
+    if (isEmailUser && !user.emailVerified) return const VerifyEmailScreen();
+    if (!_docReady) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final setupDone = _data?['setupDone'] ?? false;
+    final tutorialDone = _data?['tutorialDone'] ?? false;
+    if (!setupDone) return const OnboardingScreen();
+    if (!tutorialDone) return const TutorialScreen();
+    return const MainScreen();
   }
 }
 
@@ -1410,7 +1520,9 @@ class _LoginScreenState extends State<LoginScreen> {
         // no email fallback here on purpose -- this doc is readable by every signed-in
         // user, so an email in the display name would leak it to the whole neighborhood.
         'name': user.displayName ?? 'Neighbor', 'username': '', 'bio': '',
-        'photoUrl': user.photoURL ?? '', 'bannerColor': 0xFF7BAE8A,
+        // null (not '') so "no photo" is unambiguous; '' painted a broken avatar
+        'photoUrl': (user.photoURL?.isNotEmpty ?? false) ? user.photoURL : null,
+        'bannerColor': 0xFF7BAE8A,
         'frameStyle': 'none', 'kindnessScore': 0, 'level': 'Newcomer',
         'actsCompleted': 0, 'streak': 0, 'lastActDate': null, 'badges': [],
         'setupDone': false, 'tutorialDone': false,
@@ -1972,22 +2084,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     final user = _user;
     if (user == null) return;
     await user.reload();
-    final fresh = FirebaseAuth.instance.currentUser;
-    if (fresh != null && fresh.emailVerified && mounted) {
-      await _goNext(fresh);
-    }
-  }
-
-  Future<void> _goNext(User user) async {
-    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final data = doc.data();
-    final setupDone = data?['setupDone'] ?? false;
-    final tutorialDone = data?['tutorialDone'] ?? false;
-    if (!mounted) return;
-    final next = setupDone
-        ? (tutorialDone ? const MainScreen() : const TutorialScreen())
-        : const OnboardingScreen();
-    await Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => next), (route) => false);
+    if (mounted) _authRefresh.value++;
   }
 
   Future<void> _resendLink() async {
@@ -2074,10 +2171,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       if (data['verified'] == true) {
         final user = FirebaseAuth.instance.currentUser;
         await user?.reload();
-        final fresh = FirebaseAuth.instance.currentUser;
-        if (fresh != null && fresh.emailVerified && mounted) {
-          await _goNext(fresh);
-        }
+        if (mounted) _authRefresh.value++;
         return;
       }
       final err = data['error']?.toString();
@@ -2109,7 +2203,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       await user.reload();
       final fresh = FirebaseAuth.instance.currentUser;
       if (fresh != null && fresh.emailVerified && mounted) {
-        await _goNext(fresh);
+        // Gate re-reads the user and swaps to onboarding/main on its own.
+        _authRefresh.value++;
       } else if (mounted) {
         _showMessageDialog(context, 'Not verified yet. Open the email and tap the link.');
       }
@@ -2120,9 +2215,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     }
   }
 
-  Future<void> _signOut() async {
-    await FirebaseAuth.instance.signOut();
-  }
+  Future<void> _signOut() => _signOutAndCleanup();
 
   @override
   Widget build(BuildContext context) {
@@ -2266,7 +2359,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       await FirebaseFirestore.instance
           .collection('users').doc(user.uid).collection('private').doc('data')
           .set({'phone': _phoneController.text.trim()}, SetOptions(merge: true));
-      if (mounted) Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const TutorialScreen()), (r) => false);
+      // The AuthGate is listening to this doc; setupDone flipping true moves us
+      // to the tutorial on its own. No root replacement (that raced the gate and
+      // could strand the user on a dead route).
     } catch (_) {
       if (mounted) _showMessageDialog(context, 'Could not save your profile. Please try again.');
     } finally {
@@ -2446,7 +2541,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     await FirebaseFirestore.instance.collection('users').doc(user.uid).update({'tutorialDone': true});
-    if (mounted) Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const MainScreen()), (r) => false);
+    // AuthGate sees tutorialDone and swaps to MainScreen; no navigation needed.
   }
 
   @override
@@ -2510,7 +2605,8 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
+  // Seeded from the global so a theme/seasonal rebuild keeps the current tab.
+  int _currentIndex = _mainTabIndex;
 
   @override
   void initState() {
@@ -2521,7 +2617,10 @@ class _MainScreenState extends State<MainScreen> {
     if (uid != null) unawaited(_saveFcmToken(uid));
   }
 
-  void switchToTab(int index) => setState(() => _currentIndex = index);
+  void switchToTab(int index) {
+    _mainTabIndex = index;
+    setState(() => _currentIndex = index);
+  }
 
   final List<Widget> _screens = const [
     HomeScreen(), HelpOthersScreen(), LeaderboardScreen(), ChatsListScreen(asTab: true), ProfileScreen(),
@@ -2559,11 +2658,11 @@ class _MainScreenState extends State<MainScreen> {
             child: SafeArea(
               top: false,
               child: Row(children: [
-                _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home', selected: _currentIndex == 0, onTap: () => setState(() => _currentIndex = 0)),
-                _NavItem(icon: Icons.volunteer_activism_outlined, activeIcon: Icons.volunteer_activism_rounded, label: 'Help', selected: _currentIndex == 1, badge: helpUnread, onTap: () => setState(() => _currentIndex = 1)),
-                _NavItem(icon: Icons.leaderboard_outlined, activeIcon: Icons.leaderboard_rounded, label: 'Leaders', selected: _currentIndex == 2, onTap: () => setState(() => _currentIndex = 2)),
-                _NavItem(icon: Icons.chat_bubble_outline_rounded, activeIcon: Icons.chat_bubble_rounded, label: 'Messages', selected: _currentIndex == 3, badge: chatUnread, onTap: () => setState(() => _currentIndex = 3)),
-                _NavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'Profile', selected: _currentIndex == 4, onTap: () => setState(() => _currentIndex = 4)),
+                _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home', selected: _currentIndex == 0, onTap: () => switchToTab(0)),
+                _NavItem(icon: Icons.volunteer_activism_outlined, activeIcon: Icons.volunteer_activism_rounded, label: 'Help', selected: _currentIndex == 1, badge: helpUnread, onTap: () => switchToTab(1)),
+                _NavItem(icon: Icons.leaderboard_outlined, activeIcon: Icons.leaderboard_rounded, label: 'Leaders', selected: _currentIndex == 2, onTap: () => switchToTab(2)),
+                _NavItem(icon: Icons.chat_bubble_outline_rounded, activeIcon: Icons.chat_bubble_rounded, label: 'Messages', selected: _currentIndex == 3, badge: chatUnread, onTap: () => switchToTab(3)),
+                _NavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'Profile', selected: _currentIndex == 4, onTap: () => switchToTab(4)),
               ]),
             ),
           );
@@ -2578,11 +2677,6 @@ class _MainScreenState extends State<MainScreen> {
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
-
-  Future<void> _signOut() async {
-    if (!kIsWeb) await GoogleSignIn().signOut();
-    await FirebaseAuth.instance.signOut();
-  }
 
   Future<void> _logKindnessAct(BuildContext context, String act, String emoji) async {
     // take a photo as evidence, then let the AI check it matches the description
@@ -2801,7 +2895,7 @@ class HomeScreen extends StatelessWidget {
         scrolledUnderElevation: 0,
         title: Semantics(label: 'Kindred', image: true, child: Image.asset('assets/logo_banner.png', width: 150, fit: BoxFit.contain)),
         centerTitle: true,
-        leading: IconButton(icon: Icon(Icons.logout_rounded, color: kTextSecondary), tooltip: 'Sign out', onPressed: _signOut),
+        leading: IconButton(icon: Icon(Icons.logout_rounded, color: kTextSecondary), tooltip: 'Sign out', onPressed: _signOutAndCleanup),
         actions: [
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
@@ -3003,7 +3097,7 @@ class HomeScreen extends StatelessWidget {
                           decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
                           child: Row(children: [
                             _avatarLabel(_displayName(f['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(f['photoUrl']), backgroundColor: kAccent,
-                                child: f['photoUrl'] == null ? const Icon(Icons.person_rounded, color: Colors.white, size: 14) : null)),
+                                child: _hasPhoto(f['photoUrl']) ? null : const Icon(Icons.person_rounded, color: Colors.white, size: 14))),
                             const SizedBox(width: 10),
                             Expanded(child: RichText(text: TextSpan(style: TextStyle(color: kTextSecondary, fontSize: 13), children: [
                               TextSpan(text: _displayName(f['name']), style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600)),
@@ -3167,7 +3261,7 @@ class RequestFeedTab extends StatelessWidget {
             }
             final ordered = _pinUrgent(docs);
             return ListView.builder(
-              padding: const EdgeInsets.all(16), itemCount: ordered.length,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96), itemCount: ordered.length,
               itemBuilder: (context, i) => RequestCard(docId: ordered[i].id, data: ordered[i].data() as Map<String, dynamic>),
             );
           },
@@ -3192,7 +3286,7 @@ class MyRequestsTab extends StatelessWidget {
         }
         final ordered = _pinUrgent(snapshot.data!.docs);
         return ListView.builder(
-          padding: const EdgeInsets.all(16), itemCount: ordered.length,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96), itemCount: ordered.length,
           itemBuilder: (context, i) {
             final doc = ordered[i];
             return RequestCard(docId: doc.id, data: doc.data() as Map<String, dynamic>, isOwner: true);
@@ -3255,11 +3349,16 @@ class RequestCard extends StatelessWidget {
     ));
     if (confirmed != true) return;
 
-    await _completeClaim(data, docId);
+    final claimed = await _completeClaim(data, docId);
 
     if (context.mounted) {
-      KindredFeedback.success();
-      _showMessageDialog(context, 'Request claimed! They have been notified.');
+      if (claimed) {
+        KindredFeedback.success();
+        _showMessageDialog(context, 'Request claimed! They have been notified.');
+      } else {
+        KindredFeedback.error();
+        _showMessageDialog(context, 'Someone else already claimed this request.');
+      }
     }
   }
 
@@ -3634,12 +3733,28 @@ Future<void> _sendPushNotification(
   } catch (_) {}
 }
 
-Future<void> _completeClaim(Map<String, dynamic> data, String docId) async {
+class _ClaimUnavailable implements Exception {}
+
+// Returns false when the request was already taken. The old unconditional
+// update let two volunteers overwrite each other (the second silently stole
+// the claim); a transaction re-reads the status before writing.
+Future<bool> _completeClaim(Map<String, dynamic> data, String docId) async {
   final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
-  await FirebaseFirestore.instance.collection('requests').doc(docId).update({
-    'status': 'claimed', 'volunteerId': user.uid, 'volunteerName': user.displayName, 'claimedAt': FieldValue.serverTimestamp(),
-  });
+  if (user == null) return false;
+  try {
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final ref = FirebaseFirestore.instance.collection('requests').doc(docId);
+      final snap = await tx.get(ref);
+      if (!snap.exists || snap.data()?['status'] != 'open') {
+        throw _ClaimUnavailable();
+      }
+      tx.update(ref, {
+        'status': 'claimed', 'volunteerId': user.uid, 'volunteerName': user.displayName, 'claimedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  } catch (_) {
+    return false;
+  }
   final requesterId = data['requesterId'];
   final category = data['category'] ?? 'a request';
   if (requesterId != null && requesterId != user.uid) {
@@ -3661,6 +3776,7 @@ Future<void> _completeClaim(Map<String, dynamic> data, String docId) async {
       });
     } catch (_) {}
   }
+  return true;
 }
 
 Future<Position?> _getCurrentPosition() async {
@@ -4183,40 +4299,10 @@ class ChatsListScreen extends StatefulWidget {
 }
 
 class _ChatsListScreenState extends State<ChatsListScreen> {
-  StreamSubscription<QuerySnapshot>? _chatNotifSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _clearChatNotificationBadge();
-  }
-
-  @override
-  void dispose() {
-    _chatNotifSub?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _clearChatNotificationBadge() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    try {
-      final existing = await FirebaseFirestore.instance.collection('notifications')
-          .where('toUid', isEqualTo: uid).where('read', isEqualTo: false).get();
-      for (final d in existing.docs) {
-        if ((d.data() as Map)['chatId'] != null) { await d.reference.update({'read': true}); }
-      }
-    } catch (_) {}
-    _chatNotifSub = FirebaseFirestore.instance.collection('notifications')
-        .where('toUid', isEqualTo: uid).where('read', isEqualTo: false).snapshots()
-        .listen((snap) async {
-      for (final d in snap.docs) {
-        if ((d.data() as Map)['chatId'] != null) {
-          try { await d.reference.update({'read': true}); } catch (_) {}
-        }
-      }
-    });
-  }
+  // Chat notifications are cleared per-thread when the chat is opened
+  // (`_markChatRead`). This screen used to mark them ALL read the instant it
+  // was built, which zeroed the nav badge and the per-row unread dots before
+  // anyone could see which conversation was new.
 
   Stream<List<QueryDocumentSnapshot>> _chatStreams(String uid) {
     final a = FirebaseFirestore.instance.collection('requests').where('requesterId', isEqualTo: uid).snapshots();
@@ -4432,9 +4518,19 @@ class _NearbyMapState extends State<_NearbyMap> {
   bool _locationLoaded = false;
   bool _satellite = false;
   double _radiusMi = 1.0;
+  Set<String> _blocked = {};
 
   @override
-  void initState() { super.initState(); _loadSettings(); _loadLocation(); }
+  void initState() { super.initState(); _loadSettings(); _loadLocation(); _loadBlocked(); }
+
+  Future<void> _loadBlocked() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final snap = await _blockedUsersRef(uid).get();
+      if (mounted) setState(() => _blocked = _safeBlockedList(snap).toSet());
+    } catch (_) {}
+  }
 
   Future<void> _loadSettings() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -4478,6 +4574,8 @@ class _NearbyMapState extends State<_NearbyMap> {
             final lat = (data['approxLat'] as num?)?.toDouble();
             final lng = (data['approxLng'] as num?)?.toDouble();
             if (lat == null || lng == null) continue; // no approximate spot, so no map area
+            // The feed hides blocked users; the map used to show their areas.
+            if (_blocked.contains(data['requesterId'])) continue;
             if (_distanceMiles(_center.latitude, _center.longitude, lat, lng) > _radiusMi) continue;
             nearbyCount++;
             final color = _categoryColor(data['category'] ?? 'Other');
@@ -4573,6 +4671,7 @@ class _NearbyMapState extends State<_NearbyMap> {
   }
 
   void _showDetail(BuildContext context, Map<String, dynamic> data, String docId) {
+    if (_blocked.contains(data['requesterId'])) return;
     showModalBottomSheet(context: context, backgroundColor: Colors.transparent, builder: (_) => Container(
       decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       padding: const EdgeInsets.all(24),
@@ -4596,8 +4695,16 @@ class _NearbyMapState extends State<_NearbyMap> {
             final user = FirebaseAuth.instance.currentUser;
             if (user == null) return;
             if (data['requesterId'] == user.uid) { Navigator.pop(context); _showMessageDialog(context, "That's your own request!"); return; }
-            await _completeClaim(data, docId);
-            if (context.mounted) { Navigator.pop(context); _showMessageDialog(context, 'You claimed this request!'); }
+            final claimed = await _completeClaim(data, docId);
+            if (!context.mounted) return;
+            Navigator.pop(context);
+            if (claimed) {
+              KindredFeedback.success();
+              _showMessageDialog(context, 'You claimed this request!');
+            } else {
+              KindredFeedback.error();
+              _showMessageDialog(context, 'Someone else already claimed this request.');
+            }
           },
         ),
         const SizedBox(height: 8),
@@ -4678,7 +4785,7 @@ class LeaderboardScreen extends StatelessWidget {
                       ),
                       child: Row(children: [
                         SizedBox(width: 40, child: rank <= 3 ? _Medal(rank: rank, size: 34) : Text(rankLabel, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: rankColor))),
-                        _avatarLabel(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(data['photoUrl']), backgroundColor: kAccent, child: data['photoUrl'] == null ? const Icon(Icons.person_rounded, color: Colors.white, size: 14) : null)),
+                        _avatarLabel(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']), CircleAvatar(radius: 18, backgroundImage: _avatarImage(data['photoUrl']), backgroundColor: kAccent, child: _hasPhoto(data['photoUrl']) ? null : const Icon(Icons.person_rounded, color: Colors.white, size: 14))),
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(data['username']?.toString().isNotEmpty == true ? '@${data['username']}' : _displayName(data['name']),
@@ -4775,7 +4882,7 @@ class ProfileScreen extends StatelessWidget {
                   radius: 30,
                   backgroundImage: _avatarImage(newPhotoData ?? data['photoUrl'] ?? user?.photoURL),
                   backgroundColor: kAccent.withValues(alpha: 0.3),
-                  child: newPhotoData == null && data['photoUrl'] == null && user?.photoURL == null
+                  child: !_hasPhoto(newPhotoData) && !_hasPhoto(data['photoUrl']) && !_hasPhoto(user?.photoURL)
                       ? const Icon(Icons.person_rounded, size: 30, color: Colors.white)
                       : null,
                 ),
@@ -5443,6 +5550,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  // Firestore deletes one batch at a time and a batch caps at 500 writes, so a
+  // long conversation needs paging. Messages are participant-deletable by rules.
+  Future<void> _deleteChatThread(String chatId) async {
+    final messages = FirebaseFirestore.instance
+        .collection('chats').doc(chatId).collection('messages');
+    while (true) {
+      final page = await messages.limit(400).get();
+      if (page.docs.isEmpty) break;
+      final batch = FirebaseFirestore.instance.batch();
+      for (final d in page.docs) { batch.delete(d.reference); }
+      await batch.commit();
+      if (page.docs.length < 400) break;
+    }
+    try {
+      await FirebaseFirestore.instance.collection('chats').doc(chatId).delete();
+    } catch (_) {}
+  }
+
+  // `user.delete()` throws `requires-recent-login` for any session older than a
+  // few minutes, which was the most common way deletion failed. Confirm the
+  // identity up front (the provider they actually signed in with) so delete()
+  // succeeds first try.
+  Future<bool> _reauthForDelete(BuildContext context, User user) async {
+    final providers = user.providerData.map((p) => p.providerId).toSet();
+    try {
+      if (providers.contains('password')) {
+        final email = user.email;
+        if (email == null) return true;
+        final password = await _showNoteDialog(
+          context,
+          title: 'Confirm your password',
+          message: 'Enter the password for $email to delete this account.',
+          hint: 'Password',
+          actionLabel: 'Confirm',
+          obscure: true,
+          maxLines: 1,
+        );
+        // dismissed (null) or tapped Skip ('') = cancel
+        if (password == null || password.isEmpty) return false;
+        await user.reauthenticateWithCredential(
+          EmailAuthProvider.credential(email: email, password: password),
+        );
+        return true;
+      }
+      if (providers.contains('google.com')) {
+        if (kIsWeb) {
+          await user.reauthenticateWithPopup(GoogleAuthProvider());
+          return true;
+        }
+        final googleUser = await GoogleSignIn().signIn();
+        if (googleUser == null) return false;
+        final auth = await googleUser.authentication;
+        await user.reauthenticateWithCredential(GoogleAuthProvider.credential(
+          accessToken: auth.accessToken,
+          idToken: auth.idToken,
+        ));
+        return true;
+      }
+      // Apple-only (no button today) or an unknown provider: let delete() raise
+      // its own error instead of blocking the attempt here.
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _deleteAccount(BuildContext context) async {
     final confirm = await showDialog<bool>(context: context, builder: (_) => _KindredDialog(
       title: 'Delete Account?',
@@ -5456,23 +5629,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirm != true) return;
     if (!context.mounted) return;
     final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid;
-    if (uid == null) return;
+    if (user == null) return;
+    final uid = user.uid;
+
+    if (!await _reauthForDelete(context, user)) {
+      if (context.mounted) {
+        _showMessageDialog(context, 'We need to confirm it\'s you before deleting your account.');
+      }
+      return;
+    }
+    if (!context.mounted) return;
 
     _showLoadingDialog(context, 'Deleting your account...');
     try {
-      // Best-effort cleanup of the user's public footprint (their profile doc is
-      // the PII source; feed/requests/notifications are their visible activity).
-      final requests = await FirebaseFirestore.instance.collection('requests').where('requesterId', isEqualTo: uid).get();
-      for (final d in requests.docs) { await d.reference.delete(); }
-      final feed = await FirebaseFirestore.instance.collection('feed').where('uid', isEqualTo: uid).get();
-      for (final d in feed.docs) { await d.reference.delete(); }
-      final notifs = await FirebaseFirestore.instance.collection('notifications').where('toUid', isEqualTo: uid).get();
-      for (final d in notifs.docs) { await d.reference.delete(); }
-      await FirebaseFirestore.instance.collection('users').doc(uid).collection('private').doc('data').delete();
-      await FirebaseFirestore.instance.collection('users').doc(uid).delete();
-      await user!.delete();
-      if (!kIsWeb) await GoogleSignIn().signOut();
+      final fs = FirebaseFirestore.instance;
+      // Requests they posted: remove the conversation and the request itself.
+      final posted = await fs.collection('requests').where('requesterId', isEqualTo: uid).get();
+      for (final d in posted.docs) {
+        await _deleteChatThread(d.id);
+        try { await d.reference.delete(); } catch (_) {}
+      }
+      // Requests they volunteered for: the rules don't let us edit the owner's
+      // doc, and deleting it would erase the requester's own record, so only the
+      // shared conversation goes. The request keeps their display name.
+      final volunteered = await fs.collection('requests').where('volunteerId', isEqualTo: uid).get();
+      for (final d in volunteered.docs) {
+        await _deleteChatThread(d.id);
+      }
+      final feed = await fs.collection('feed').where('uid', isEqualTo: uid).get();
+      for (final d in feed.docs) { try { await d.reference.delete(); } catch (_) {} }
+      final notifs = await fs.collection('notifications').where('toUid', isEqualTo: uid).get();
+      for (final d in notifs.docs) { try { await d.reference.delete(); } catch (_) {} }
+      // Only notes they WROTE are deletable (rules are author-only); notes
+      // addressed to them belong to the author.
+      final notes = await fs.collection('thank_you_notes').where('fromUid', isEqualTo: uid).get();
+      for (final d in notes.docs) { try { await d.reference.delete(); } catch (_) {} }
+      final history = await fs.collection('users').doc(uid).collection('history').get();
+      for (final d in history.docs) { try { await d.reference.delete(); } catch (_) {} }
+      final privateDocs = await fs.collection('users').doc(uid).collection('private').get();
+      for (final d in privateDocs.docs) { try { await d.reference.delete(); } catch (_) {} }
+      try { await fs.collection('users').doc(uid).delete(); } catch (_) {}
+      // Auth user LAST: if an earlier step fails the account still exists and
+      // the user can retry, instead of leaving orphaned data behind.
+      await user.delete();
+      if (!kIsWeb) { try { await GoogleSignIn().signOut(); } catch (_) {} }
       if (context.mounted) Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
       if (!context.mounted) return;
@@ -5680,10 +5880,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile(
               icon: Icons.logout_rounded,
               title: 'Sign Out',
-              onTap: () async {
-                if (!kIsWeb) await GoogleSignIn().signOut();
-                await FirebaseAuth.instance.signOut();
-              },
+              onTap: _signOutAndCleanup,
             ),
             _SettingsTile(
               icon: Icons.delete_outline_rounded,
@@ -5759,7 +5956,7 @@ class _BlockedUsersSection extends StatelessWidget {
               final nameField = _displayName(d?['name']);
               final name = usernameField != null && usernameField.isNotEmpty ? '@$usernameField' : (nameField.isNotEmpty ? nameField : 'Blocked user');
               return ListTile(
-                leading: _avatarLabel(name, CircleAvatar(radius: 16, backgroundImage: _avatarImage(d?['photoUrl']), backgroundColor: kCardLight, child: d?['photoUrl'] == null ? const Icon(Icons.person_rounded, size: 16) : null)),
+                leading: _avatarLabel(name, CircleAvatar(radius: 16, backgroundImage: _avatarImage(d?['photoUrl']), backgroundColor: kCardLight, child: _hasPhoto(d?['photoUrl']) ? null : const Icon(Icons.person_rounded, size: 16))),
                 title: Text(name, style: TextStyle(color: kTextPrimary, fontSize: 14)),
                 trailing: TextButton(
                   onPressed: () async {
@@ -6552,7 +6749,7 @@ class _AvatarWithFrame extends StatelessWidget {
       case 'purple': frameColor = const Color(0xFF7B1FA2); break;
       case 'rainbow': gradientColors = [Colors.red, Colors.orange, Colors.yellow, Colors.green, Colors.blue, Colors.purple]; break;
     }
-    final avatar = CircleAvatar(radius: 42, backgroundImage: _avatarImage(photoUrl), backgroundColor: kAccent.withValues(alpha: 0.3), child: photoUrl == null ? const Icon(Icons.person_rounded, size: 42, color: Colors.white) : null);
+    final avatar = CircleAvatar(radius: 42, backgroundImage: _avatarImage(photoUrl), backgroundColor: kAccent.withValues(alpha: 0.3), child: _hasPhoto(photoUrl) ? null : const Icon(Icons.person_rounded, size: 42, color: Colors.white));
     if (frameStyle == 'none') return avatar;
     return Container(width: 96, height: 96, decoration: BoxDecoration(shape: BoxShape.circle, gradient: gradientColors != null ? LinearGradient(colors: gradientColors) : null, color: frameColor), padding: const EdgeInsets.all(3), child: avatar);
   }
