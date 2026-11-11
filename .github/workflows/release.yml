@@ -54,6 +54,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Strip Mac-only dependency overrides
@@ -123,6 +124,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Strip Mac-only dependency overrides
@@ -206,6 +208,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Strip Mac-only dependency overrides
