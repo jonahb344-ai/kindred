@@ -386,6 +386,11 @@ Color get kDivider => switch (_seasonalMode) {
 // heavy rounding — the brief asks for 16–24px on every card
 const double kRadius = 22;
 
+// Single app-wide typeface. Bundled in pubspec (weights 100–800) so it renders
+// identically on iOS, Android and web; the Thin (100) weight is used sparingly
+// for large display numerals, everything else leans on 400/600/700/800.
+const String kFontFamily = 'Poppins';
+
 LinearGradient get kAccentGradient => LinearGradient(
   // deep sage pair so WHITE labels on primary buttons always clear 4.5:1.
   // Dark mode uses a duskier, lower-chroma pair so buttons read as calm sage
@@ -653,7 +658,7 @@ class _KindredAppState extends State<KindredApp> with WidgetsBindingObserver {
     final base = ThemeData(
       brightness: brightness,
       colorScheme: colorScheme,
-      fontFamily: 'Roboto',
+      fontFamily: kFontFamily,
       useMaterial3: true,
     );
     return base.copyWith(
@@ -681,14 +686,14 @@ class _KindredAppState extends State<KindredApp> with WidgetsBindingObserver {
         scrolledUnderElevation: 0,
         centerTitle: false,
         foregroundColor: kTextPrimary,
-        titleTextStyle: TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+        titleTextStyle: TextStyle(fontFamily: kFontFamily, color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.2),
       ),
       dividerTheme: DividerThemeData(color: kDivider, thickness: 1, space: 1),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: kAccent, linearTrackColor: kDivider),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: isDark ? kCardLight : kTextPrimary,
-        contentTextStyle: TextStyle(color: isDark ? kTextPrimary : Colors.white, fontSize: 14),
+        contentTextStyle: TextStyle(fontFamily: kFontFamily, color: isDark ? kTextPrimary : Colors.white, fontSize: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
@@ -2975,28 +2980,6 @@ class HomeScreen extends StatelessWidget {
         title: Semantics(label: 'Kindred', image: true, child: Image.asset('assets/logo_banner.png', width: 150, fit: BoxFit.contain)),
         centerTitle: true,
         leading: IconButton(icon: Icon(Icons.logout_rounded, color: kTextSecondary), tooltip: 'Sign out', onPressed: _signOutAndCleanup),
-        actions: [
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
-            builder: (context, snapshot) {
-              final photo = (snapshot.data?.data() as Map<String, dynamic>?)?['photoUrl'];
-              return GestureDetector(
-                onTap: () { final m = context.findAncestorStateOfType<_MainScreenState>(); m?.switchToTab(4); },
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 16),
-                  child: CircleAvatar(
-                    radius: 17,
-                    backgroundImage: _avatarImage(photo ?? user?.photoURL),
-                    backgroundColor: kAccent,
-                    child: (photo == null || photo.toString().isEmpty) && user?.photoURL == null
-                        ? const Icon(Icons.person_rounded, color: Colors.white, size: 17)
-                        : null,
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
