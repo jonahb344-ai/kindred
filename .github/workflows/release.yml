@@ -46,6 +46,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The runner's default JDK moved to 25, which Gradle 8.14 rejects
+      # ("Java 25.0.5 ... incompatible with Gradle 8.14"). Pin Java 17.
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Version from pubspec
         run: |
           echo "VERSION=$(sed -nE 's/^version: ([0-9.]+).*/\1/p' pubspec.yaml)" >> "$GITHUB_ENV"
