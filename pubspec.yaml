@@ -72,6 +72,11 @@ flutter:
     - assets/icon/icon_sage.png
     - assets/icon/icon_cream.png
     - assets/icon/icon_pumpkin.png
+    - assets/icon/icon_human_navy.png
+    - assets/icon/icon_human_sage.png
+    - assets/icon/icon_human_cream.png
+    - assets/icon/icon_human_pumpkin.png
+    - assets/icon/icon_human_silver.png
 
 flutter_launcher_icons:
   android: true

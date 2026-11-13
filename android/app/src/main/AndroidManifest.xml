@@ -81,6 +81,76 @@
             </intent-filter>
         </activity-alias>
 
+        <activity-alias
+            android:name=".icon_human_navy"
+            android:label="Kindred"
+            android:icon="@mipmap/ic_launcher_human_navy"
+            android:roundIcon="@mipmap/ic_launcher_human_navy"
+            android:exported="true"
+            android:enabled="false"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".icon_human_sage"
+            android:label="Kindred"
+            android:icon="@mipmap/ic_launcher_human_sage"
+            android:roundIcon="@mipmap/ic_launcher_human_sage"
+            android:exported="true"
+            android:enabled="false"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".icon_human_cream"
+            android:label="Kindred"
+            android:icon="@mipmap/ic_launcher_human_cream"
+            android:roundIcon="@mipmap/ic_launcher_human_cream"
+            android:exported="true"
+            android:enabled="false"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".icon_human_pumpkin"
+            android:label="Kindred"
+            android:icon="@mipmap/ic_launcher_human_pumpkin"
+            android:roundIcon="@mipmap/ic_launcher_human_pumpkin"
+            android:exported="true"
+            android:enabled="false"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".icon_human_silver"
+            android:label="Kindred"
+            android:icon="@mipmap/ic_launcher_human_silver"
+            android:roundIcon="@mipmap/ic_launcher_human_silver"
+            android:exported="true"
+            android:enabled="false"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+
         <service
             android:name="com.solusibejo.flutter_dynamic_icon_plus.FlutterDynamicIconPlusService"
             android:stopWithTask="false"/>

@@ -4,4 +4,9 @@
     <color name="ic_launcher_sage_background">#4E7C76</color>
     <color name="ic_launcher_cream_background">#FBF6EF</color>
     <color name="ic_launcher_pumpkin_background">#C2410C</color>
+    <color name="ic_launcher_human_navy_background">#0C072B</color>
+    <color name="ic_launcher_human_sage_background">#FFFFF9</color>
+    <color name="ic_launcher_human_cream_background">#FFFFF9</color>
+    <color name="ic_launcher_human_pumpkin_background">#FF751F</color>
+    <color name="ic_launcher_human_silver_background">#0C072B</color>
 </resources>

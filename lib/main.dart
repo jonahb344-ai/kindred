@@ -25,7 +25,7 @@
 // (groceries, yard work, rides, etc) — all free, no catch.
 // ============================================================
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox;
+import 'package:flutter/cupertino.dart' show CupertinoSwitch, CupertinoSlider, CupertinoCheckbox, CupertinoPageTransitionsBuilder;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
@@ -627,31 +627,94 @@ class _KindredAppState extends State<KindredApp> with WidgetsBindingObserver {
     );
   }
 
-  ThemeData _darkTheme() => ThemeData(
+  ThemeData _darkTheme() => _baseTheme(
     brightness: Brightness.dark,
-    scaffoldBackgroundColor: kBackground,
-    cardColor: kCard,
     colorScheme: const ColorScheme.dark(
       primary: Color(0xFF7FB0A8),
       secondary: Color(0xFF63918B),
       surface: Color(0xFF1B1F1E),
     ),
-    fontFamily: 'Roboto',
-    useMaterial3: true,
   );
 
-  ThemeData _lightTheme() => ThemeData(
+  ThemeData _lightTheme() => _baseTheme(
     brightness: Brightness.light,
-    scaffoldBackgroundColor: kBackground,
-    cardColor: kCard,
     colorScheme: const ColorScheme.light(
       primary: Color(0xFF527A75),
       secondary: Color(0xFF63918B),
       surface: Colors.white,
     ),
-    fontFamily: 'Roboto',
-    useMaterial3: true,
   );
+
+  // One shared builder so light and dark never drift apart. Screens still style
+  // most text directly, but routing the type scale, motion and component chrome
+  // through here is what keeps the whole app feeling like a single product.
+  ThemeData _baseTheme({required Brightness brightness, required ColorScheme colorScheme}) {
+    final isDark = brightness == Brightness.dark;
+    final base = ThemeData(
+      brightness: brightness,
+      colorScheme: colorScheme,
+      fontFamily: 'Roboto',
+      useMaterial3: true,
+    );
+    return base.copyWith(
+      scaffoldBackgroundColor: kBackground,
+      canvasColor: kBackground,
+      cardColor: kCard,
+      // Native-feeling route motion: the iOS push slide on iPhone, the modern
+      // Android zoom everywhere else.
+      pageTransitionsTheme: const PageTransitionsTheme(builders: {
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.android: ZoomPageTransitionsBuilder(),
+        TargetPlatform.windows: ZoomPageTransitionsBuilder(),
+        TargetPlatform.linux: ZoomPageTransitionsBuilder(),
+      }),
+      // Kill the Android ink ripple — every press already has its own scale and
+      // haptic feedback, so the ripple just reads as a double effect.
+      splashFactory: NoSplash.splashFactory,
+      visualDensity: VisualDensity.standard,
+      iconTheme: IconThemeData(color: kTextSecondary),
+      appBarTheme: AppBarTheme(
+        backgroundColor: kBackground,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        foregroundColor: kTextPrimary,
+        titleTextStyle: TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+      ),
+      dividerTheme: DividerThemeData(color: kDivider, thickness: 1, space: 1),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: kAccent, linearTrackColor: kDivider),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isDark ? kCardLight : kTextPrimary,
+        contentTextStyle: TextStyle(color: isDark ? kTextPrimary : Colors.white, fontSize: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
+      textTheme: _kindredTextTheme(base.textTheme),
+    );
+  }
+
+  // A restrained, consistent type scale. Apple-style: fewer sizes, tighter
+  // display tracking, generous body line-height.
+  TextTheme _kindredTextTheme(TextTheme base) {
+    final c = kTextPrimary;
+    return base.copyWith(
+      displaySmall: TextStyle(color: c, fontWeight: FontWeight.w700, letterSpacing: -0.5, height: 1.15),
+      headlineMedium: TextStyle(color: c, fontWeight: FontWeight.w700, letterSpacing: -0.4, height: 1.2),
+      headlineSmall: TextStyle(color: c, fontWeight: FontWeight.w700, letterSpacing: -0.3, height: 1.2),
+      titleLarge: TextStyle(color: c, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+      titleMedium: TextStyle(color: c, fontWeight: FontWeight.w600, letterSpacing: -0.1),
+      bodyLarge: TextStyle(color: c, height: 1.45),
+      bodyMedium: TextStyle(color: c, height: 1.45),
+      labelLarge: TextStyle(color: c, fontWeight: FontWeight.w600, letterSpacing: 0.1),
+    );
+  }
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -670,24 +733,34 @@ void _hapticHeavy() {
 // iOS swaps between alternate icon sets compiled from Assets.xcassets; Android
 // flips the activity-alias entries in AndroidManifest.xml. The web build has no
 // equivalent, so the Settings tile is disabled there.
-const List<String> kAppIconIds = ['navy', 'sage', 'cream', 'pumpkin'];
+// Hand-drawn set first, the original generated set second.
+const List<String> kHumanIconIds = ['human_navy', 'human_sage', 'human_cream', 'human_pumpkin', 'human_silver'];
+const List<String> kAiIconIds = ['navy', 'sage', 'cream', 'pumpkin'];
 
-String _appIconLabel(String id) {
-  switch (id) {
-    case 'sage': return 'Sage';
-    case 'cream': return 'Cream';
-    case 'pumpkin': return 'Pumpkin';
-    default: return 'Navy';
-  }
-}
+const Map<String, String> _kAppIconLabels = {
+  'human_navy': 'Navy', 'human_sage': 'Sage', 'human_cream': 'Cream',
+  'human_pumpkin': 'Pumpkin', 'human_silver': 'Silver',
+  'navy': 'Navy', 'sage': 'Sage', 'cream': 'Cream', 'pumpkin': 'Pumpkin',
+};
+
+String _appIconLabel(String id) => _kAppIconLabels[id] ?? 'Navy';
 
 String _appIconAsset(String id) => 'assets/icon/icon_$id.png';
+
+// Explicit iOS names because the hand-drawn ids (human_navy) don't map to the
+// appiconset names (AppIcon-HumanNavy) by simple title-casing.
+const Map<String, String> _kNativeIconNames = {
+  'sage': 'AppIcon-Sage', 'cream': 'AppIcon-Cream', 'pumpkin': 'AppIcon-Pumpkin',
+  'human_navy': 'AppIcon-HumanNavy', 'human_sage': 'AppIcon-HumanSage',
+  'human_cream': 'AppIcon-HumanCream', 'human_pumpkin': 'AppIcon-HumanPumpkin',
+  'human_silver': 'AppIcon-HumanSilver',
+};
 
 String? _nativeIconName(String id) {
   if (id == 'navy') return null; // null restores the primary icon
   switch (defaultTargetPlatform) {
     case TargetPlatform.iOS:
-      return 'AppIcon-${id[0].toUpperCase()}${id.substring(1)}';
+      return _kNativeIconNames[id];
     case TargetPlatform.android:
       return 'icon_$id';
     default:
@@ -1238,24 +1311,24 @@ class _KindredDialogShell extends StatelessWidget {
         child: Container(
           decoration: BoxDecoration(
             color: kCard,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
             boxShadow: [kCardShadow],
           ),
-          padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
           child: DefaultTextStyle.merge(
             textAlign: TextAlign.center,
-            style: TextStyle(color: kTextSecondary, fontSize: 15, height: 1.45),
+            style: TextStyle(color: kTextSecondary, fontSize: 15, height: 1.5),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (title != null) ...[
-                  Text(title!, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w800, fontSize: 18, height: 1.25)),
-                  const SizedBox(height: 12),
+                  Text(title!, style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w700, fontSize: 18, height: 1.25, letterSpacing: -0.2)),
+                  const SizedBox(height: 10),
                 ],
                 Flexible(child: SingleChildScrollView(child: content)),
                 if (actions.isNotEmpty) ...[
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 20),
                   ...actions,
                 ],
               ],
@@ -1277,11 +1350,11 @@ class _GhostButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return _Pressable(
       onTap: onPressed,
-      child: Container(
-        height: 48,
-        alignment: Alignment.center,
-        child: Text(label, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w700, fontSize: 15)),
-      ),
+        child: Container(
+          height: 46,
+          alignment: Alignment.center,
+          child: Text(label, style: TextStyle(color: kTextSecondary, fontWeight: FontWeight.w600, fontSize: 15, letterSpacing: 0.1)),
+        ),
     );
   }
 }
@@ -1301,7 +1374,7 @@ class StateIllustration extends StatelessWidget {
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         _HaloIcon(icon: icon, color: c, iconSize: 56),
         const SizedBox(height: 20),
-        Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.2)),
+        Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700, color: kTextPrimary, height: 1.2, letterSpacing: -0.2)),
         if (subtitle != null) ...[
           const SizedBox(height: 8),
           Text(subtitle!, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: kTextSecondary, height: 1.5)),
@@ -2531,10 +2604,13 @@ class _TutorialScreenState extends State<TutorialScreen> {
   final List<Map<String, dynamic>> _steps = [
     {'icon': Icons.home_rounded, 'title': 'Home Screen', 'desc': 'See your Kindness Score, level progress, and log acts of kindness. AI verifies every photo you submit.'},
     {'icon': Icons.handshake_rounded, 'title': 'Help Others', 'desc': 'Spot requests on the nearby map or in the feed. Tap Help to volunteer. You earn points when the requester marks it complete.'},
-    {'icon': Icons.add_circle_outline_rounded, 'title': 'Post a Request', 'desc': 'Need help? Tap Post Request, choose a category, describe what you need, and set the urgency level.'},
-    {'icon': Icons.chat_bubble_outline_rounded, 'title': 'Messages', 'desc': 'When someone claims your request, a chat opens automatically. Use the Messages tab to coordinate and stay in touch.'},
+    {'icon': Icons.add_circle_outline_rounded, 'title': 'Post a Request', 'desc': 'Need help? Tap Post Request, choose a category, describe what you need, and set the urgency. Mark it High or SOS to pin it to the top of the feed.'},
+    {'icon': Icons.chat_bubble_outline_rounded, 'title': 'Messages', 'desc': 'When someone claims your request, a chat opens automatically. Coordinate here, and call your partner with one tap if they saved a phone number.'},
+    {'icon': Icons.map_rounded, 'title': 'Nearby Map', 'desc': 'Open requests appear as approximate areas, never exact addresses. Adjust how far you see under Nearby in Settings.'},
     {'icon': Icons.star_rounded, 'title': 'Kindness Score', 'desc': 'Every verified act earns you points. Weekends give double points! Reach milestones to unlock profile customization.'},
+    {'icon': Icons.verified_rounded, 'title': 'Confirm a Favor', 'desc': 'After your helper marks a request done, tap Confirm to verify it. That closes the favor and adds a verified check to the request.'},
     {'icon': Icons.person_rounded, 'title': 'Your Profile', 'desc': 'Tap your avatar to visit your profile. Edit your username, bio, banner, and avatar frame as you level up.'},
+    {'icon': Icons.palette_rounded, 'title': 'Make It Yours', 'desc': 'In Settings you can pick a hand-drawn or AI-made app icon, switch on a seasonal theme, and toggle haptics and sound effects.'},
   ];
 
   Future<void> _finish() async {
@@ -2653,8 +2729,13 @@ class _MainScreenState extends State<MainScreen> {
           final helpUnread = docs.length - chatUnread;
           return Container(
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(24), boxShadow: [kCardShadow]),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(
+              color: kCard,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: kDivider.withValues(alpha: 0.6), width: 0.5),
+              boxShadow: [kCardShadow],
+            ),
             child: SafeArea(
               top: false,
               child: Row(children: [
@@ -3547,12 +3628,7 @@ class RequestCard extends StatelessWidget {
             if (status == 'open' && !isRequester)
               _KindredButton(label: 'Help', onPressed: () => _claimRequest(context), compact: true, fullWidth: false),
             if (status == 'claimed' && isRequester)
-              _Pressable(onTap: () => _markComplete(context), child: Container(
-                height: 40, padding: const EdgeInsets.symmetric(horizontal: 18),
-                decoration: BoxDecoration(color: kAccentDark, borderRadius: BorderRadius.circular(14),
-                    boxShadow: kButtonShadow),
-                child: const Center(child: Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13))),
-              )),
+              _KindredButton(label: 'Done', onPressed: () => _markComplete(context), compact: true, fullWidth: false),
             if (isRequester && status == 'completed' && data['recipientConfirmed'] != true)
               _KindredButton(label: 'Confirm', onPressed: () => _confirmHelp(context), compact: true, fullWidth: false),
           ]),
@@ -5491,42 +5567,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: SafeArea(
           top: false,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: kDivider, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 16),
-            Text('App Icon', style: TextStyle(color: kTextPrimary, fontSize: 19, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text('Choose the icon shown on your home screen.', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 13)),
-            const SizedBox(height: 18),
-            Row(children: [
-              for (final id in kAppIconIds)
-                Expanded(child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: _Pressable(
-                    onTap: () => Navigator.pop(sheetContext, id),
-                    child: Column(children: [
-                      Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: id == _appIcon ? kAccent : Colors.transparent, width: 2.5),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(13),
-                          child: Image.asset(_appIconAsset(id), width: 54, height: 54, filterQuality: FilterQuality.medium),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(_appIconLabel(id), maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: id == _appIcon ? kAccent : kTextSecondary, fontSize: 12,
-                              fontWeight: id == _appIcon ? FontWeight.w700 : FontWeight.w500)),
-                    ]),
-                  ),
-                )),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: kDivider, borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              Center(child: Text('App Icon', style: TextStyle(color: kTextPrimary, fontSize: 19, fontWeight: FontWeight.w700))),
+              const SizedBox(height: 4),
+              Center(child: Text('Choose the icon shown on your home screen.', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 13))),
+              const SizedBox(height: 18),
+              _appIconGroup(sheetContext, 'Human made', kHumanIconIds),
+              const SizedBox(height: 16),
+              _appIconGroup(sheetContext, 'AI made', kAiIconIds),
+              const SizedBox(height: 16),
+              Center(child: Text('On Android the new icon appears after you close Kindred.', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 11))),
             ]),
-            const SizedBox(height: 14),
-            Text('On Android the new icon appears after you close Kindred.', textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 11)),
-          ]),
+          ),
         ),
       ),
     );
@@ -5534,6 +5589,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _appIcon = picked);
     await _saveSettings();
     await _applyAppIcon(picked);
+  }
+
+  Widget _appIconGroup(BuildContext sheetContext, String title, List<String> ids) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: TextStyle(color: kTextPrimary, fontSize: 14, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 10),
+      Wrap(spacing: 12, runSpacing: 12, children: [
+        for (final id in ids)
+          _Pressable(
+            onTap: () => Navigator.pop(sheetContext, id),
+            child: Column(children: [
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: id == _appIcon ? kAccent : Colors.transparent, width: 2.5),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(13),
+                  child: Image.asset(_appIconAsset(id), width: 54, height: 54, filterQuality: FilterQuality.medium),
+                ),
+              ),
+              const SizedBox(height: 6),
+              SizedBox(width: 62, child: Text(_appIconLabel(id), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                  style: TextStyle(color: id == _appIcon ? kAccent : kTextSecondary, fontSize: 12,
+                      fontWeight: id == _appIcon ? FontWeight.w700 : FontWeight.w500))),
+            ]),
+          ),
+      ]),
+    ]);
   }
 
   Future<void> _saveSettings() async {
@@ -5983,9 +6068,9 @@ class _SettingsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(padding: EdgeInsets.only(bottom: 10), child: Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kTextSecondary, letterSpacing: 0.8))),
+      Padding(padding: EdgeInsets.only(bottom: 10), child: Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kTextSecondary, letterSpacing: 1.0))),
       Container(
-        decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(18), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
+        decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: kDivider), boxShadow: [kSoftShadow]),
         child: Column(children: children.asMap().entries.map((e) {
           return Column(children: [
             e.value,
@@ -6012,9 +6097,9 @@ class _SettingsTile extends StatelessWidget {
       color: Colors.transparent,
       child: ListTile(
         onTap: onTap == null ? null : () { KindredFeedback.tap(); onTap!(); },
-        leading: Container(width: 36, height: 36, decoration: BoxDecoration(color: (titleColor == Colors.red ? Colors.red : kAccent).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+        leading: Container(width: 36, height: 36, decoration: BoxDecoration(color: (titleColor == Colors.red ? Colors.red : kAccent).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(11)),
             child: Icon(icon, color: titleColor == Colors.red ? Colors.red : kAccent, size: 19)),
-        title: Text(title, style: TextStyle(color: titleColor ?? kTextPrimary, fontSize: 15, fontWeight: FontWeight.w500)),
+        title: Text(title, style: TextStyle(color: titleColor ?? kTextPrimary, fontSize: 15, fontWeight: FontWeight.w600)),
         trailing: trailing ?? (onTap != null ? Icon(Icons.chevron_right_rounded, color: kTextSecondary, size: 20) : null),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       ),
@@ -6548,25 +6633,25 @@ class _KindredButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final disabled = loading || onPressed == null;
     final button = AnimatedOpacity(
-      opacity: disabled ? 0.6 : 1.0,
+      opacity: disabled ? 0.5 : 1.0,
       duration: const Duration(milliseconds: 150),
       child: Container(
-        height: compact ? 44 : 54,
-        padding: EdgeInsets.symmetric(horizontal: compact ? 20 : 24),
+        height: compact ? 42 : 52,
+        padding: EdgeInsets.symmetric(horizontal: compact ? 18 : 24),
         decoration: BoxDecoration(
           gradient: destructive ? null : kAccentGradient,
           color: destructive ? kDangerFill : null,
-          borderRadius: BorderRadius.circular(compact ? 14 : 18),
+          borderRadius: BorderRadius.circular(compact ? 12 : 16),
           boxShadow: disabled ? const [] : kButtonShadow,
         ),
         child: Center(
           child: loading
               ? SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: destructive ? Colors.white : kOnAccent))
-              : Text(label, style: TextStyle(color: destructive ? Colors.white : kOnAccent, fontSize: compact ? 14 : 16, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+              : Text(label, style: TextStyle(color: destructive ? Colors.white : kOnAccent, fontSize: compact ? 14 : 16, fontWeight: FontWeight.w600, letterSpacing: 0.1)),
         ),
       ),
     );
-    final pressable = _Pressable(onTap: disabled ? null : onPressed, child: button);
+    final pressable = _Pressable(onTap: disabled ? null : onPressed, pressedScale: 0.98, child: button);
     return fullWidth ? SizedBox(width: double.infinity, child: pressable) : pressable;
   }
 }
@@ -6586,7 +6671,7 @@ class _EmptyState extends StatelessWidget {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           _HaloIcon(icon: icon, color: kAccent, iconSize: 48),
           const SizedBox(height: 20),
-          Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.25)),
+          Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: kTextPrimary, height: 1.25, letterSpacing: -0.2)),
           if (subtitle != null) ...[
             const SizedBox(height: 8),
             Text(subtitle!, textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 15, height: 1.5)),
@@ -6618,7 +6703,7 @@ class _SuccessState extends StatelessWidget {
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               const _HaloIcon(icon: Icons.check_circle_rounded, color: Color(0xFF10B981), iconSize: 64, pad: 24),
               const SizedBox(height: 24),
-              Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kTextPrimary, height: 1.2)),
+              Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: kTextPrimary, height: 1.2, letterSpacing: -0.2)),
               const SizedBox(height: 10),
               Text(subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: kTextSecondary, height: 1.6)),
               const SizedBox(height: 32),
@@ -6646,18 +6731,27 @@ class _NavItem extends StatelessWidget {
     return Expanded(
       child: _Pressable(
         onTap: onTap,
-        pressedScale: 0.88,
-        child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(
-            width: 44, height: 30,
-            decoration: BoxDecoration(color: selected ? kAccent.withValues(alpha: 0.14) : Colors.transparent, borderRadius: BorderRadius.circular(15)),
-            child: Center(child: badge > 0
-                ? Badge(label: Text('$badge'), child: Icon(selected ? activeIcon : icon, size: 23, color: color))
-                : Icon(selected ? activeIcon : icon, size: 23, color: color)),
-          ),
-          const SizedBox(height: 2),
-          Text(label, style: TextStyle(fontSize: 10, fontWeight: selected ? FontWeight.w700 : FontWeight.w500, color: color)),
-        ]),
+        pressedScale: 0.9,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              width: 50, height: 30,
+              decoration: BoxDecoration(color: selected ? kAccent.withValues(alpha: 0.12) : Colors.transparent, borderRadius: BorderRadius.circular(15)),
+              child: Center(child: badge > 0
+                  ? Badge(label: Text('$badge'), child: Icon(selected ? activeIcon : icon, size: 22, color: color))
+                  : Icon(selected ? activeIcon : icon, size: 22, color: color)),
+            ),
+            const SizedBox(height: 3),
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 180),
+              style: TextStyle(fontSize: 10, fontWeight: selected ? FontWeight.w700 : FontWeight.w500, color: color, letterSpacing: 0.1),
+              child: Text(label),
+            ),
+          ]),
+        ),
       ),
     );
   }

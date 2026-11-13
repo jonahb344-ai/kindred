@@ -58,6 +58,9 @@ android/key.properties
 
 # AI tooling / agent memory (kept local, not published)
 /AGENTS.md
+/.agents/
+/.opencode/
+/skills-lock.json
 
 # Congressional App Challenge working doc (private, not published)
 /CAC_APPLICATION.md
