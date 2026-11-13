@@ -1876,25 +1876,25 @@ String _friendlyAuthError(Object error) {
       resizeToAvoidBottomInset: true,
       body: Stack(children: [
         Positioned.fill(child: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [const Color(0xFF63918B).withValues(alpha: 0.92), const Color(0xFF2F4F4A).withValues(alpha: 0.85), const Color(0xFF0F1418).withValues(alpha: 0.95)],
+              colors: [Color(0xFF6FA39C), Color(0xFF3A5F5A), Color(0xFF16211F)],
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
             ),
           ),
         )),
         SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 72, 28, 28),
+            padding: const EdgeInsets.fromLTRB(28, 64, 28, 28),
             child: Column(
               children: [
                 _StaggerIn(child: Column(children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(28),
-                    child: Semantics(label: 'Kindred', image: true, child: Image.asset('assets/logo_banner_login.png', width: 260, fit: BoxFit.contain)),
+                    child: Semantics(label: 'Kindred', image: true, child: Image.asset('assets/logo_banner_login.png', width: 300, fit: BoxFit.contain)),
                   ),
-                  const SizedBox(height: 26),
-                  const Text('Neighbors helping neighbors.', style: TextStyle(fontSize: 15, color: Colors.white70)),
+                  const SizedBox(height: 22),
+                  const Text('Neighbors helping neighbors.', style: TextStyle(fontSize: 16, color: Colors.white70, letterSpacing: 0.2)),
                 ])),
                 const SizedBox(height: 36),
                 _StaggerIn(delayMs: 120, child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -2728,12 +2728,10 @@ class _MainScreenState extends State<MainScreen> {
           final chatUnread = docs.where((d) => (d.data() as Map)['chatId'] != null).length;
           final helpUnread = docs.length - chatUnread;
           return Container(
-            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.only(top: 8, bottom: 4),
             decoration: BoxDecoration(
               color: kCard,
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: kDivider.withValues(alpha: 0.6), width: 0.5),
+              border: Border(top: BorderSide(color: kDivider.withValues(alpha: 0.7), width: 0.5)),
               boxShadow: [kCardShadow],
             ),
             child: SafeArea(
@@ -3040,11 +3038,26 @@ class HomeScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Welcome back, ${username.isNotEmpty ? username : user?.displayName?.split(' ').first ?? 'Friend'}',
-                            style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                        const SizedBox(height: 4),
-                        const Text('How can you help your community\ntoday?',
-                            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800, height: 1.2, letterSpacing: -0.3)),
+                        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Text('WELCOME BACK',
+                                style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+                            const SizedBox(height: 6),
+                            Text(username.isNotEmpty ? username : (user?.displayName?.split(' ').first ?? 'Friend'),
+                                style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                            const SizedBox(height: 8),
+                            const Text('How can you help your community today?',
+                                style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.35)),
+                          ])),
+                          const SizedBox(width: 12),
+                          _avatarLabel(_displayName(username.isNotEmpty ? username : (user?.displayName ?? '')),
+                            CircleAvatar(
+                              radius: 24,
+                              backgroundColor: Colors.white24,
+                              backgroundImage: _avatarImage(data?['photoUrl']),
+                              child: _hasPhoto(data?['photoUrl']) ? null : const Icon(Icons.person_rounded, color: Colors.white, size: 24),
+                            )),
+                        ]),
                         const SizedBox(height: 18),
                         Wrap(spacing: 8, runSpacing: 8, children: [
                           _StatPill(label: '$score pts', icon: Icons.star_rounded),
@@ -5509,7 +5522,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.13';
+  String _appVersion = 'bv1.0.14';
 
   @override
   void initState() {
@@ -6727,7 +6740,8 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? kAccent : kTextSecondary;
+    final iconColor = selected ? kOnAccent : kTextSecondary;
+    final labelColor = selected ? kAccent : kTextSecondary;
     return Expanded(
       child: _Pressable(
         onTap: onTap,
@@ -6736,18 +6750,22 @@ class _NavItem extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+              duration: const Duration(milliseconds: 200),
               curve: Curves.easeOutCubic,
-              width: 50, height: 30,
-              decoration: BoxDecoration(color: selected ? kAccent.withValues(alpha: 0.12) : Colors.transparent, borderRadius: BorderRadius.circular(15)),
+              width: selected ? 64 : 50, height: 34,
+              decoration: BoxDecoration(
+                color: selected ? kAccent : Colors.transparent,
+                borderRadius: BorderRadius.circular(17),
+                boxShadow: selected ? kButtonShadow : null,
+              ),
               child: Center(child: badge > 0
-                  ? Badge(label: Text('$badge'), child: Icon(selected ? activeIcon : icon, size: 22, color: color))
-                  : Icon(selected ? activeIcon : icon, size: 22, color: color)),
+                  ? Badge(label: Text('$badge'), child: Icon(selected ? activeIcon : icon, size: 22, color: iconColor))
+                  : Icon(selected ? activeIcon : icon, size: 22, color: iconColor)),
             ),
             const SizedBox(height: 3),
             AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 180),
-              style: TextStyle(fontSize: 10, fontWeight: selected ? FontWeight.w700 : FontWeight.w500, color: color, letterSpacing: 0.1),
+              style: TextStyle(fontSize: 10, fontWeight: selected ? FontWeight.w700 : FontWeight.w500, color: labelColor, letterSpacing: 0.1),
               child: Text(label),
             ),
           ]),
