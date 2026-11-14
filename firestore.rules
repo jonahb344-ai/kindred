@@ -61,6 +61,22 @@ service cloud.firestore {
       }
     }
 
+    // ─── Username reservations (uniqueness) ──────────────────────────────────
+    // The document id IS the lower-cased username, so claiming the doc is what
+    // makes a handle unique. Clients claim inside a transaction; the rules only
+    // keep the key canonical and stop anyone squatting on or stealing a handle.
+    match /usernames/{handle} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && handle == handle.lower()
+        && handle.matches('^[a-z0-9._]{3,20}$');
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     // ─── Requests ────────────────────────────────────────────────────────────
     match /requests/{id} {
       function isRequester() { return resource.data.requesterId == request.auth.uid; }

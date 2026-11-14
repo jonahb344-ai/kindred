@@ -1560,6 +1560,56 @@ class _AuthGateState extends State<AuthGate> {
 }
 
 
+// ─── USERNAME UNIQUENESS ──────────────────────────────────────────────────────
+// Usernames have to be unique, so `usernames/{handle}` is a reservation doc and the
+// source of truth (the profile's `username` field is just a display cache). The claim
+// runs in a transaction, so two people racing for the same handle can't both win.
+
+/// Lower-cased, '@'-stripped form used as the reservation key.
+String _normalizeUsername(String raw) =>
+    raw.trim().toLowerCase().replaceFirst(RegExp(r'^@+'), '');
+
+/// Returns a human-readable problem with [raw], or null when it's acceptable.
+/// Empty is allowed — a username is optional.
+String? _usernameError(String raw) {
+  final handle = _normalizeUsername(raw);
+  if (handle.isEmpty) return null;
+  if (handle.length < 3 || handle.length > 20) {
+    return 'Usernames must be 3–20 characters.';
+  }
+  if (!RegExp(r'^[a-z0-9._]+$').hasMatch(handle)) {
+    return 'Usernames can use only letters, numbers, periods and underscores.';
+  }
+  return null;
+}
+
+/// Atomically claims [raw] for [uid]. Returns true when the handle is free (or blank),
+/// false when someone else already holds it. Releases [previous] if the handle changed.
+Future<bool> _claimUsername(String raw, String uid, {String? previous}) async {
+  final handle = _normalizeUsername(raw);
+  final prev = previous == null ? '' : _normalizeUsername(previous);
+  final usernames = FirebaseFirestore.instance.collection('usernames');
+  if (handle.isEmpty) {
+    if (prev.isNotEmpty) {
+      try { await usernames.doc(prev).delete(); } catch (_) {}
+    }
+    return true;
+  }
+  final ref = usernames.doc(handle);
+  final claimed = await FirebaseFirestore.instance.runTransaction<bool>((tx) async {
+    final snap = await tx.get(ref);
+    if (snap.exists && snap.data()?['uid'] != uid) return false;
+    tx.set(ref, {'uid': uid, 'createdAt': FieldValue.serverTimestamp()},
+        SetOptions(merge: true));
+    return true;
+  });
+  if (claimed && prev.isNotEmpty && prev != handle) {
+    try { await usernames.doc(prev).delete(); } catch (_) {}
+  }
+  return claimed;
+}
+
+
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 
 class LoginScreen extends StatefulWidget {
@@ -1903,37 +1953,25 @@ String _friendlyAuthError(Object error) {
                 ])),
                 const SizedBox(height: 36),
                 _StaggerIn(delayMs: 120, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  _Pressable(
+                  _SocialButton(
                     onTap: _isLoading ? null : _signInWithGoogle,
-                    child: Container(
-                      width: double.infinity, height: 54,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Image.network('https://www.google.com/favicon.ico', height: 20, width: 20, excludeFromSemantics: true),
-                          const SizedBox(width: 12),
-                          Text('Continue with Google', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _isLoading ? const Color(0xFF94A3B8) : const Color(0xFF0F172A))),
-                        ],
-                      ),
-                    ),
+                    logo: const _GoogleGLogo(size: 20),
+                    label: 'Continue with Google',
+                    background: Colors.white,
+                    foreground: const Color(0xFF0F172A),
                   ),
                   // App Review Guideline 4.8: offering Google Sign-In obligates us to offer
-                  // Sign in with Apple as an equivalent option. Apple's HIG says to use their
-                  // provided button, so this is the plugin's SignInWithAppleButton. iOS/macOS
-                  // only — the plugin has no Android implementation.
+                  // Sign in with Apple as an equivalent option. iOS/macOS only — the plugin
+                  // has no Android implementation. The mark is drawn as a vector (see
+                  // _AppleLogo) so no image asset or network request is needed.
                   if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS)) ...[
                     const SizedBox(height: 12),
-                    SignInWithAppleButton(
-                      onPressed: _isLoading ? () {} : _signInWithApple,
-                      text: 'Continue with Apple',
-                      style: SignInWithAppleButtonStyle.white,
-                      height: 54,
-                      borderRadius: BorderRadius.circular(16),
+                    _SocialButton(
+                      onTap: _isLoading ? null : _signInWithApple,
+                      logo: const _AppleLogo(size: 20, color: Colors.white),
+                      label: 'Continue with Apple',
+                      background: Colors.black,
+                      foreground: Colors.white,
                     ),
                   ],
                 ])),
@@ -2438,8 +2476,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    final handleErr = _usernameError(_usernameController.text);
+    if (handleErr != null) {
+      _showMessageDialog(context, handleErr);
+      return;
+    }
     setState(() => _isLoading = true);
     try {
+      // Reserve the handle before saving it, so two people can't end up with the same one.
+      if (!await _claimUsername(_usernameController.text, user.uid)) {
+        if (mounted) _showMessageDialog(context, 'That username is already taken. Try another.');
+        return;
+      }
       await user.updateProfile(displayName: name);
       await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
         'name': name,
@@ -4945,13 +4993,28 @@ class ProfileScreen extends StatelessWidget {
             Text('Edit Profile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kTextPrimary)),
             TextButton(
               onPressed: () async {
+                final uid = user?.uid;
+                if (uid == null) return;
                 final updates = <String, dynamic>{};
                 if (nameController.text.trim().isNotEmpty) updates['name'] = nameController.text.trim();
-                if (canEditUsername) { updates['username'] = usernameController.text.trim(); updates['bio'] = bioController.text.trim(); }
+                if (canEditUsername) {
+                  final newHandle = usernameController.text.trim();
+                  final handleErr = _usernameError(newHandle);
+                  if (handleErr != null) { _showMessageDialog(context, handleErr); return; }
+                  final oldHandle = (data['username'] ?? '').toString();
+                  if (_normalizeUsername(newHandle) != _normalizeUsername(oldHandle)) {
+                    if (!await _claimUsername(newHandle, uid, previous: oldHandle)) {
+                      if (context.mounted) _showMessageDialog(context, 'That username is already taken. Try another.');
+                      return;
+                    }
+                  }
+                  updates['username'] = newHandle;
+                  updates['bio'] = bioController.text.trim();
+                }
                 if (canEditBanner) updates['bannerColor'] = selectedBannerColor;
                 if (canEditFrame) updates['frameStyle'] = selectedFrame;
                 if (newPhotoData != null) updates['photoUrl'] = newPhotoData;
-                await FirebaseFirestore.instance.collection('users').doc(user?.uid).update(updates);
+                await FirebaseFirestore.instance.collection('users').doc(uid).update(updates);
                 await FirebaseFirestore.instance
                     .collection('users').doc(user?.uid).collection('private').doc('data')
                     .set({'phone': phoneController.text.trim()}, SetOptions(merge: true));
@@ -6193,6 +6256,166 @@ class _PressableState extends State<_Pressable> {
 
 class _ActivateIntent extends Intent {
   const _ActivateIntent();
+}
+
+// ─── SOCIAL SIGN-IN BUTTONS ───────────────────────────────────────────────────
+// A rounded, brand-styled button for "Continue with Google / Apple" (style "C": a
+// white Google pill and a black Apple pill). The logos are drawn as vectors, so they
+// stay crisp at any size and need no image asset or network fetch.
+
+/// Minimal SVG path-data parser covering the commands the two brand marks use
+/// (M L H V C S Z, absolute and relative). Returns a Path scaled by [scale].
+Path _svgPath(String d, double scale) {
+  final tokens = RegExp(r'[MmLlHhVvCcSsZz]|-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?')
+      .allMatches(d).map((m) => m[0]!).toList();
+  final p = Path();
+  double cx = 0, cy = 0, sx = 0, sy = 0;
+  double? lc2x, lc2y; // second control point of the previous cubic (for S/s)
+  int i = 0;
+  String cmd = '';
+  double n() => double.parse(tokens[i++]);
+  bool isCmd(String t) => t.length == 1 && 'MmLlHhVvCcSsZz'.contains(t);
+  while (i < tokens.length) {
+    if (isCmd(tokens[i])) cmd = tokens[i++];
+    final rel = cmd != cmd.toUpperCase();
+    switch (cmd.toUpperCase()) {
+      case 'M':
+        final x = n(), y = n();
+        cx = rel ? cx + x : x; cy = rel ? cy + y : y;
+        p.moveTo(cx * scale, cy * scale); sx = cx; sy = cy;
+        cmd = rel ? 'l' : 'L'; lc2x = null; lc2y = null;
+        break;
+      case 'L':
+        final x = n(), y = n();
+        cx = rel ? cx + x : x; cy = rel ? cy + y : y;
+        p.lineTo(cx * scale, cy * scale); lc2x = null; lc2y = null;
+        break;
+      case 'H':
+        final x = n();
+        cx = rel ? cx + x : x;
+        p.lineTo(cx * scale, cy * scale); lc2x = null; lc2y = null;
+        break;
+      case 'V':
+        final y = n();
+        cy = rel ? cy + y : y;
+        p.lineTo(cx * scale, cy * scale); lc2x = null; lc2y = null;
+        break;
+      case 'C':
+        final x1 = n(), y1 = n(), x2 = n(), y2 = n(), x = n(), y = n();
+        final c1x = rel ? cx + x1 : x1, c1y = rel ? cy + y1 : y1;
+        final c2x = rel ? cx + x2 : x2, c2y = rel ? cy + y2 : y2;
+        final ex = rel ? cx + x : x, ey = rel ? cy + y : y;
+        p.cubicTo(c1x * scale, c1y * scale, c2x * scale, c2y * scale, ex * scale, ey * scale);
+        lc2x = c2x; lc2y = c2y; cx = ex; cy = ey;
+        break;
+      case 'S':
+        final x2 = n(), y2 = n(), x = n(), y = n();
+        final c1x = lc2x == null ? cx : 2 * cx - lc2x;
+        final c1y = lc2y == null ? cy : 2 * cy - lc2y;
+        final c2x = rel ? cx + x2 : x2, c2y = rel ? cy + y2 : y2;
+        final ex = rel ? cx + x : x, ey = rel ? cy + y : y;
+        p.cubicTo(c1x * scale, c1y * scale, c2x * scale, c2y * scale, ex * scale, ey * scale);
+        lc2x = c2x; lc2y = c2y; cx = ex; cy = ey;
+        break;
+      case 'Z':
+        p.close(); cx = sx; cy = sy; lc2x = null; lc2y = null;
+        break;
+      default:
+        i++;
+    }
+  }
+  return p;
+}
+
+class _GoogleGLogo extends StatelessWidget {
+  final double size;
+  const _GoogleGLogo({this.size = 20});
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(width: size, height: size, child: CustomPaint(painter: _GoogleGPainter()));
+}
+
+class _GoogleGPainter extends CustomPainter {
+  // Google's official four-colour "G" (viewBox 0 0 48 48).
+  static const _red = 'M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z';
+  static const _yellow = 'M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z';
+  static const _green = 'M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z';
+  static const _blue = 'M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z';
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 48.0;
+    final paint = Paint()..style = PaintingStyle.fill;
+    canvas.drawPath(_svgPath(_red, s), paint..color = const Color(0xFFEA4335));
+    canvas.drawPath(_svgPath(_yellow, s), paint..color = const Color(0xFFFBBC05));
+    canvas.drawPath(_svgPath(_green, s), paint..color = const Color(0xFF34A853));
+    canvas.drawPath(_svgPath(_blue, s), paint..color = const Color(0xFF4285F4));
+  }
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _AppleLogo extends StatelessWidget {
+  final double size;
+  final Color color;
+  const _AppleLogo({this.size = 20, this.color = Colors.white});
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(width: size, height: size, child: CustomPaint(painter: _ApplePainter(color)));
+}
+
+class _ApplePainter extends CustomPainter {
+  final Color color;
+  _ApplePainter(this.color);
+  // Apple mark (viewBox 0 0 24 24).
+  static const _apple = 'M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.377 0-2.332-1.26-3.428-2.8-1.287-1.82-2.323-4.63-2.323-7.28 0-4.28 2.797-6.55 5.552-6.55 1.448 0 2.675.95 3.6.95.865 0 2.222-1.01 3.902-1.01.613 0 2.886.06 4.374 2.19-.13.09-2.383 1.37-2.383 4.19 0 3.26 2.854 4.42 2.955 4.45z';
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawPath(_svgPath(_apple, size.width / 24.0),
+        Paint()..color = color..style = PaintingStyle.fill);
+  }
+  @override
+  bool shouldRepaint(covariant _ApplePainter oldDelegate) => oldDelegate.color != color;
+}
+
+class _SocialButton extends StatelessWidget {
+  final Widget logo;
+  final String label;
+  final Color background;
+  final Color foreground;
+  final VoidCallback? onTap;
+  const _SocialButton({
+    required this.logo,
+    required this.label,
+    required this.background,
+    required this.foreground,
+    this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity, height: 54,
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
+        ),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.55,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              logo,
+              const SizedBox(width: 12),
+              Text(label, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: foreground)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _DescribeActSheet extends StatefulWidget {
