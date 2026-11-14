@@ -1903,8 +1903,7 @@ String _friendlyAuthError(Object error) {
                 ])),
                 const SizedBox(height: 36),
                 _StaggerIn(delayMs: 120, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  // Google sign-in is hidden on iPhone for now (Apple sign-in is failing there).
-                  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) _Pressable(
+                  _Pressable(
                     onTap: _isLoading ? null : _signInWithGoogle,
                     child: Container(
                       width: double.infinity, height: 54,
@@ -1923,6 +1922,20 @@ String _friendlyAuthError(Object error) {
                       ),
                     ),
                   ),
+                  // App Review Guideline 4.8: offering Google Sign-In obligates us to offer
+                  // Sign in with Apple as an equivalent option. Apple's HIG says to use their
+                  // provided button, so this is the plugin's SignInWithAppleButton. iOS/macOS
+                  // only — the plugin has no Android implementation.
+                  if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS)) ...[
+                    const SizedBox(height: 12),
+                    SignInWithAppleButton(
+                      onPressed: _isLoading ? () {} : _signInWithApple,
+                      text: 'Continue with Apple',
+                      style: SignInWithAppleButtonStyle.white,
+                      height: 54,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ],
                 ])),
                 const SizedBox(height: 18),
                 _StaggerIn(delayMs: 200, child: Container(
@@ -5505,7 +5518,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.14';
+  String _appVersion = 'bv1.0.15';
 
   @override
   void initState() {
