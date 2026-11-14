@@ -336,6 +336,30 @@ jobs:
             -exportOptionsPlist ios/ExportOptions.plist \
             -exportPath "$PWD/build/ios/ipa"
 
+      - name: Verify signed IPA carries the Sign in with Apple entitlement
+        if: steps.guard.outputs.skip == 'false'
+        # Classic CI trap: if the archive isn't actually signed, -exportArchive
+        # derives the entitlement request from the archived binary's signature
+        # (there is none) and emits an IPA with NO capability entitlements. Sign
+        # in with Apple then fails at runtime with ASAuthorizationError error 1000
+        # (unknown). Fail loudly here rather than shipping a broken build.
+        run: |
+          set -eux
+          IPA=$(ls build/ios/ipa/*.ipa | head -1)
+          rm -rf "$RUNNER_TEMP/ipacheck"
+          mkdir -p "$RUNNER_TEMP/ipacheck"
+          unzip -q "$IPA" -d "$RUNNER_TEMP/ipacheck"
+          APP="$RUNNER_TEMP/ipacheck/Payload/Runner.app"
+          codesign -d --entitlements :- "$APP" > "$RUNNER_TEMP/ents.plist" 2>/dev/null || true
+          cat "$RUNNER_TEMP/ents.plist" || true
+          if grep -q "com.apple.developer.applesignin" "$RUNNER_TEMP/ents.plist" 2>/dev/null \
+             || grep -aq "com.apple.developer.applesignin" "$APP/Runner"; then
+            echo "OK: com.apple.developer.applesignin present in the signed IPA."
+          else
+            echo "::error::The signed IPA is missing com.apple.developer.applesignin - Sign in with Apple would fail with error 1000."
+            exit 1
+          fi
+
       - name: Upload App Store IPA artifact
         if: steps.guard.outputs.skip == 'false'
         uses: actions/upload-artifact@v4
