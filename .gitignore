@@ -58,6 +58,7 @@ android/key.properties
 
 # AI tooling / agent memory (kept local, not published)
 /AGENTS.md
+/AGENTS_HISTORY.md
 /.agents/
 /.opencode/
 /skills-lock.json
