@@ -65,6 +65,9 @@ export default {
     if (request.method === 'POST' && url.pathname === '/notifyNearby') {
       return handleNotifyNearby(request, env);
     }
+    if (request.method === 'POST' && url.pathname === '/anonymizeVolunteered') {
+      return handleAnonymizeVolunteered(request, env);
+    }
     if (request.method === 'POST' && url.pathname === '/phone') {
       return handlePhone(request, env);
     }
@@ -1362,6 +1365,67 @@ async function handleNotifyNearby(request, env) {
     return json({ notified });
   } catch (e) {
     return serverError('Broadcast failed', 500, e && e.message);
+  }
+}
+
+async function handleAnonymizeVolunteered(request, env) {
+  const sa = getServiceAccount(env);
+  if (!sa) {
+    return serverError('Server temporarily unavailable', 500, 'SERVICE_ACCOUNT binding missing');
+  }
+  const auth = await verifyFirebaseIdToken(requestAuthHeader(request), sa.project_id);
+  if (!auth) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const oauth = await getOAuthToken(sa);
+    // Structured query to find requests where volunteerId == auth.uid
+    const qResp = await fetch(
+      'https://firestore.googleapis.com/v1/projects/' + sa.project_id + '/databases/(default)/documents:runQuery',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          structuredQuery: {
+            from: [{ collectionId: 'requests' }],
+            where: {
+              fieldFilter: {
+                field: { fieldPath: 'volunteerId' },
+                op: 'EQUAL',
+                value: { stringValue: auth.uid },
+              },
+            },
+          },
+        }),
+      }
+    );
+    if (!qResp.ok) {
+      return serverError('Query failed', 500, await qResp.text());
+    }
+    const results = await qResp.json();
+    var count = 0;
+    for (const r of results) {
+      if (!r.document) continue;
+      const docName = r.document.name;
+      // Anonymize volunteer details on the request doc
+      await fetch(
+        'https://firestore.googleapis.com/v1/' + docName + '?updateMask.fieldPaths=volunteerName',
+        {
+          method: 'PATCH',
+          headers: { Authorization: 'Bearer ' + oauth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: {
+              volunteerName: { stringValue: 'Former Neighbor' },
+            },
+          }),
+        }
+      );
+      count++;
+    }
+    return json({ success: true, count: count });
+  } catch (e) {
+    return serverError('Anonymization failed', 500, e && e.message);
   }
 }
 

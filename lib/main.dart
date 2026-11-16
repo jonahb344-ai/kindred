@@ -45,6 +45,7 @@ import 'package:latlong2/latlong.dart' hide Path;
 import 'package:geolocator/geolocator.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:app_settings/app_settings.dart';
 import 'package:flutter_dynamic_icon_plus/flutter_dynamic_icon_plus.dart';
 import 'feedback.dart';
 import 'dart:async';
@@ -3385,6 +3386,18 @@ class RequestFeedTab extends StatelessWidget {
             final allDocs = snapshot.data!.docs;
             final blockedUsers = _safeBlockedList(userSnap.data);
             final viewer = viewerSnap.data;
+            // Without a saved location there is no honest radius to filter by, and
+            // showing every request in the county is worse than asking for it once.
+            if (viewer != null && viewer.lat == null) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: _LocationRequiredCard(
+                    message: 'Kindred needs your location to show open requests near you.',
+                  ),
+                ),
+              );
+            }
             final docs = allDocs.where((d) {
               final data = d.data() as Map<String, dynamic>;
               if (blockedUsers.contains(data['requesterId'])) return false;
@@ -3953,6 +3966,20 @@ Future<void> _notifyNearby(String requestId) async {
       },
       body: jsonEncode({'requestId': requestId}),
     );
+  } catch (_) {}
+}
+
+// Best effort: the Worker rewrites volunteerName on every request this user
+// claimed, since firestore.rules only let the requester edit that doc. A failure
+// here must not block account deletion - it is retried only by the user retrying.
+Future<void> _anonymizeVolunteered() async {
+  try {
+    await http
+        .post(
+          Uri.parse('$kServerBaseUrl/anonymizeVolunteered'),
+          headers: {'Content-Type': 'application/json', ...await _authHeaders()},
+        )
+        .timeout(const Duration(seconds: 10));
   } catch (_) {}
 }
 
@@ -4637,6 +4664,41 @@ bool _inViewerRange(Map<String, dynamic> data, _Viewer v) {
   return _distanceMiles(v.lat!, v.lng!, lat, lng) <= v.radius;
 }
 
+class _LocationRequiredCard extends StatelessWidget {
+  const _LocationRequiredCard({required this.message, this.radius = 18});
+  final String message;
+  final double radius;
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Container(
+        color: kCard,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 64, height: 64,
+              decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.12), shape: BoxShape.circle),
+              child: const Icon(Icons.location_off_rounded, color: Colors.orange, size: 32),
+            ),
+            const SizedBox(height: 16),
+            Text('Location Permission Required', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kTextPrimary)),
+            const SizedBox(height: 8),
+            Text(message, textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: kTextSecondary, height: 1.4)),
+            const SizedBox(height: 20),
+            _KindredButton(
+              label: 'Open Settings',
+              onPressed: () => AppSettings.openAppSettings(type: AppSettingsType.location),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NearbyMap extends StatefulWidget {
   const _NearbyMap({this.expanded = false, this.onExpand});
   final bool expanded;
@@ -4645,16 +4707,36 @@ class _NearbyMap extends StatefulWidget {
   State<_NearbyMap> createState() => _NearbyMapState();
 }
 
-class _NearbyMapState extends State<_NearbyMap> {
+class _NearbyMapState extends State<_NearbyMap> with WidgetsBindingObserver {
   final MapController _mapController = MapController();
   LatLng _center = const LatLng(35.1495, -90.0490);
   bool _locationLoaded = false;
+  bool _locationDenied = false;
   bool _satellite = false;
   double _radiusMi = 1.0;
   Set<String> _blocked = {};
 
   @override
-  void initState() { super.initState(); _loadSettings(); _loadLocation(); _loadBlocked(); }
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadSettings();
+    _loadLocation();
+    _loadBlocked();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadLocation();
+    }
+  }
 
   Future<void> _loadBlocked() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -4682,9 +4764,12 @@ class _NearbyMapState extends State<_NearbyMap> {
 
   Future<void> _loadLocation() async {
     final pos = await _getCurrentPosition();
-    if (pos == null) return;
     if (!mounted) return;
-    setState(() { _center = LatLng(pos.latitude, pos.longitude); _locationLoaded = true; });
+    if (pos == null) {
+      setState(() { _locationLoaded = false; _locationDenied = true; });
+      return;
+    }
+    setState(() { _center = LatLng(pos.latitude, pos.longitude); _locationLoaded = true; _locationDenied = false; });
     // The map may not be attached yet on a cold start; move() asserts in that case.
     try {
       _mapController.move(_center, 13);
@@ -4732,6 +4817,12 @@ class _NearbyMapState extends State<_NearbyMap> {
           }
         }
         final baseTiles = _satellite ? kTilesSatellite : kTilesLight;
+        if (_locationDenied && !_locationLoaded) {
+          return _LocationRequiredCard(
+            radius: widget.expanded ? 0 : 18,
+            message: 'Kindred needs your location to show open requests near you on the map.',
+          );
+        }
         return ClipRRect(
           borderRadius: BorderRadius.circular(widget.expanded ? 0 : 18),
           child: Stack(children: [
@@ -5581,7 +5672,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ThemeMode _themeMode = ThemeMode.system;
   double _nearbyRadiusMi = 1.0;
   // TODO: pull this from package_info at startup instead of hardcoding fallback
-  String _appVersion = 'bv1.0.16';
+  String _appVersion = 'bv1.0.18';
 
   @override
   void initState() {
@@ -5807,8 +5898,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         try { await d.reference.delete(); } catch (_) {}
       }
       // Requests they volunteered for: the rules don't let us edit the owner's
-      // doc, and deleting it would erase the requester's own record, so only the
-      // shared conversation goes. The request keeps their display name.
+      // doc, so the Worker (service account) swaps their display name for
+      // "Former Neighbor" first; then the shared conversation goes. The request
+      // itself stays because it belongs to the requester.
+      await _anonymizeVolunteered();
       final volunteered = await fs.collection('requests').where('volunteerId', isEqualTo: uid).get();
       for (final d in volunteered.docs) {
         await _deleteChatThread(d.id);

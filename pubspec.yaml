@@ -2,7 +2,7 @@ name: kindred_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.16+1
+version: 1.0.18+1
 
 environment:
   # kept wide so the same file works on both Jonah's Windows PC (newer Flutter)
@@ -32,6 +32,7 @@ dependencies:
   flutter_local_notifications: ^22.0.1
   audioplayers: ^6.7.1
   flutter_dynamic_icon_plus: ^1.6.0
+  app_settings: ^9.0.1
   # NOTE: firebase_storage, share_plus and qr_flutter were removed 2026-10-04. Nothing imported
   # them -- profile photos go into the user doc as a base64 data URI and the share/QR features
   # are beta-gated behind snackbars. firebase_storage especially was worth dropping: the project
