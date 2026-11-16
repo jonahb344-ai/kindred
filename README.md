@@ -71,6 +71,14 @@ Two deliberate design choices:
 
 ## Run it locally
 
+**This section is for someone who wants to build Kindred from source** — to read the code, change
+it, or run their own copy. You do not need any of it to use the app: it is already on the
+[App Store](https://apps.apple.com/app/id6826042911) and the [web](https://kindred.smartlights.lol).
+
+Everything below runs against **your own** Firebase project. The checked-in
+`lib/firebase_options.dart` points at the live production project, so a fresh clone is not
+"ready to run" until you replace it in step 2 — do not build against the production database.
+
 ### 1. Prerequisites
 
 - Flutter 3.x with the platform toolchain you want (Xcode for iOS, Android Studio for Android;
@@ -104,8 +112,9 @@ lints are expected).
 
 ### 4. Run the Worker (optional)
 
-Everything except AI verification, push, phone sharing, and neighbor broadcasts works without it.
-If you want the full app:
+The app is usable without this step: posting, claiming, chatting, the map, and the feed are all
+client + Firestore. You only need the Worker for AI kindness verification, push notifications,
+phone sharing, and neighbor broadcasts. If you want those, deploy your own copy:
 
 ```bash
 cd worker
@@ -115,7 +124,8 @@ npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put ANTHROPIC_API_KEY    # optional fallback
 ```
 
-`kServerBaseUrl` in `lib/main.dart` is the one place the app points at the Worker.
+`kServerBaseUrl` in `lib/main.dart` is the one place the app points at the Worker — change it to
+your own Worker URL (the checked-in value is the production one).
 
 ### 5. Build a release
 
