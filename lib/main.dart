@@ -1029,7 +1029,7 @@ Future<void> _submitReport(BuildContext context, String reportedUid, String repo
       'Reported user ID': reportedUid,
       'Reason': reason,
       'Details': details.isEmpty ? 'None provided' : details,
-      if (chatId != null) 'Chat ID': chatId,
+      'Chat ID': ?chatId,
       'Chat transcript': transcript ?? 'Not available',
     },
   );
@@ -1137,8 +1137,11 @@ Future<void> _updateStreak(String uid) async {
     final lastDay = DateTime(lastActDate.year, lastActDate.month, lastActDate.day);
     final diff = today.difference(lastDay).inDays;
     if (diff == 0) return; // Already logged today, don't update
-    if (diff == 1) streak++;
-    else streak = 1; // Reset streak if more than 1 day gap
+    if (diff == 1) {
+      streak++;
+    } else {
+      streak = 1; // Reset streak if more than 1 day gap
+    }
   }
   await doc.update({'streak': streak, 'lastActDate': FieldValue.serverTimestamp()});
 }
@@ -2569,8 +2572,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               _KindredButton(
                 label: _step < 2 ? 'Continue' : 'Get Started',
                 onPressed: () async {
-                  if (_step < 2) setState(() => _step++);
-                  else await _finish();
+                  if (_step < 2) {
+                    setState(() => _step++);
+                  } else {
+                    await _finish();
+                  }
                 },
                 loading: _isLoading,
               ),
@@ -2723,7 +2729,13 @@ class _TutorialScreenState extends State<TutorialScreen> {
               const Spacer(),
               _KindredButton(
                 label: _step < _steps.length - 1 ? 'Next' : 'Start Using Kindred',
-                onPressed: () async { if (_step < _steps.length - 1) setState(() => _step++); else await _finish(); },
+                onPressed: () async {
+                if (_step < _steps.length - 1) {
+                  setState(() => _step++);
+                } else {
+                  await _finish();
+                }
+              },
               ),
               if (_step > 0) ...[
                 const SizedBox(height: 12),
@@ -2864,9 +2876,13 @@ class HomeScreen extends StatelessWidget {
         final newScore = currentScore + pts;
         final newActs = currentActs + 1;
         String level = 'Newcomer';
-        if (newScore >= legendThreshold) level = 'Legend';
-        else if (newScore >= championThreshold) level = 'Champion';
-        else if (newScore >= helperThreshold) level = 'Helper';
+        if (newScore >= legendThreshold) {
+          level = 'Legend';
+        } else if (newScore >= championThreshold) {
+          level = 'Champion';
+        } else if (newScore >= helperThreshold) {
+          level = 'Helper';
+        }
 
         await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
         await _updateStreak(user.uid);
@@ -3547,9 +3563,13 @@ class RequestCard extends StatelessWidget {
       final currentScore = (snap.data()?['kindnessScore'] ?? 0) as int;
       final newScore = currentScore + _currentPoints;
       String level = 'Newcomer';
-      if (newScore >= legendThreshold) level = 'Legend';
-      else if (newScore >= championThreshold) level = 'Champion';
-      else if (newScore >= helperThreshold) level = 'Helper';
+      if (newScore >= legendThreshold) {
+        level = 'Legend';
+      } else if (newScore >= championThreshold) {
+        level = 'Champion';
+      } else if (newScore >= helperThreshold) {
+        level = 'Helper';
+      }
       await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
       // Advance the volunteer's daily streak. (Badge + history writes for another
       // user are blocked by firestore.rules, which only lets a non-owner touch
@@ -3833,7 +3853,7 @@ Future<Map<String, dynamic>> _callVerifyAct(String description, String? imageBas
     },
     body: jsonEncode({
       'description': description,
-      if (imageBase64 != null) 'imageBase64': imageBase64,
+      'imageBase64': ?imageBase64,
     }),
   ).timeout(const Duration(seconds: 45));
   final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -4304,9 +4324,13 @@ class _ChatScreenState extends State<ChatScreen> {
       final newScore = currentScore + _currentPoints;
       final newActs = currentActs + 1;
       String level = 'Newcomer';
-      if (newScore >= legendThreshold) level = 'Legend';
-      else if (newScore >= championThreshold) level = 'Champion';
-      else if (newScore >= helperThreshold) level = 'Helper';
+      if (newScore >= legendThreshold) {
+        level = 'Legend';
+      } else if (newScore >= championThreshold) {
+        level = 'Champion';
+      } else if (newScore >= helperThreshold) {
+        level = 'Helper';
+      }
       await doc.update({'kindnessScore': newScore, 'level': level, 'actsCompleted': FieldValue.increment(1)});
       // Volunteer completing their own help: full streak + badge + history update.
       await _updateStreak(user.uid);
@@ -7001,10 +7025,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(subtitle!, textAlign: TextAlign.center, style: TextStyle(color: kTextSecondary, fontSize: 15, height: 1.5)),
           ],
-          if (action != null) ...[
-            const SizedBox(height: 20),
-            action!,
-          ],
+          
         ]),
       ),
     );
